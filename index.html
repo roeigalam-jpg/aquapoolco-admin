@@ -3,27 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aquapoolco Elite - Control Panel</title>
+    <title>אקוופולקו חן - ניהול מחלקת טיח</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-firestore-compat.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
-        body { font-family: 'Assistant', sans-serif; background-color: #020617; color: #f8fafc; }
-        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
-        .signature-pad { background: white; border-radius: 8px; cursor: crosshair; }
-        @media print { .no-print { display: none; } }
+        body { background-color: #0f172a; color: white; font-family: system-ui, -apple-system, sans-serif; overflow-x: hidden; }
+        .glass { background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
+        .table-container { overflow-x: auto; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.1); }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        th { background: #1e293b; padding: 1rem; text-align: right; font-weight: 800; color: #94a3b8; font-size: 0.875rem; border-bottom: 2px solid #334155; white-space: nowrap; }
+        td { padding: 0.5rem; border-bottom: 1px solid #334155; white-space: nowrap; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+        .status-cell { cursor: pointer; border-radius: 0.5rem; text-align: center; font-weight: bold; padding: 0.75rem 0.5rem; transition: all 0.2s; border: 1px solid transparent; }
+        .status-cell:hover { filter: brightness(1.1); border-color: rgba(255,255,255,0.2); }
+        
+        /* צבעי סטטוסים - סגנון מאנדיי */
+        .status-0 { background-color: #334155; color: #cbd5e1; } /* טרם התחיל */
+        .status-1 { background-color: #f59e0b; color: #fff; } /* בתהליך */
+        .status-2 { background-color: #ef4444; color: #fff; } /* מעוכב */
+        .status-3 { background-color: #10b981; color: #fff; } /* בוצע */
+
+        /* סקרולבר יוקרתי */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 4px; }
     </style>
 </head>
-<body>
+<body class="antialiased">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
         const firebaseConfig = {
             apiKey: "AIzaSyDld2PBV8RugpAEZyTmkMrfBZNDZp4GkJw",
@@ -37,126 +51,297 @@
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
+        const defaultStages = [
+            { id: 's1', label: 'הכנת תשתית' },
+            { id: 's2', label: 'איטום ראשוני' },
+            { id: 's3', label: 'טיח מיישר' },
+            { id: 's4', label: 'איטום סופי' },
+            { id: 's5', label: 'בדיקת הצפה' }
+        ];
+
+        const statusOptions = [
+            { code: 0, label: "טרם התחיל", colorClass: "status-0" },
+            { code: 1, label: "בתהליך", colorClass: "status-1" },
+            { code: 2, label: "מעוכב ⚠️", colorClass: "status-2" },
+            { code: 3, label: "בוצע ✓", colorClass: "status-3" }
+        ];
+
+        // קישור ללוגו (מאוחסן בשרת יציב כדי שלא יקריס את Render)
+        const LOGO_URL = "https://i.imgur.com/WfVp07m.jpg";
+
         function App() {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
-            const [projects, setProjects] = useState([]);
-            const [showAddModal, setShowAddModal] = useState(false);
             const [pass, setPass] = useState("");
-            const sigPad = useRef(null);
-            const canvasRef = useRef(null);
+            const [projects, setProjects] = useState([]);
+            const [stages, setStages] = useState([]);
+            const [activeTab, setActiveTab] = useState("board");
+            
+            const [showAddProject, setShowAddProject] = useState(false);
+            const [statusModal, setStatusModal] = useState(null);
 
             useEffect(() => {
-                const unsubscribe = db.collection("projects").orderBy("createdAt", "desc").onSnapshot(snapshot => {
+                const unsubSettings = db.collection("settings").doc("general").onSnapshot(doc => {
+                    if (doc.exists && doc.data().stages) {
+                        setStages(doc.data().stages);
+                    } else {
+                        db.collection("settings").doc("general").set({ stages: defaultStages });
+                        setStages(defaultStages);
+                    }
+                });
+
+                const unsubProjects = db.collection("projects").orderBy("createdAt", "desc").onSnapshot(snapshot => {
                     setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 });
-                return () => unsubscribe();
+
+                return () => { unsubSettings(); unsubProjects(); };
             }, []);
 
-            useEffect(() => {
-                if (canvasRef.current) {
-                    sigPad.current = new SignaturePad(canvasRef.current);
-                }
-            }, [isLoggedIn]);
-
-            const exportPDF = (id) => {
-                const element = document.getElementById(`report-${id}`);
-                const opt = {
-                    margin: 10,
-                    filename: `Aquapoolco_Report_${id}.pdf`,
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2 },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                };
-                html2pdf().from(element).set(opt).save();
+            const updateStatus = (projectId, stageId, newCode) => {
+                const proj = projects.find(p => p.id === projectId);
+                if (!proj) return;
+                db.collection("projects").doc(projectId).update({
+                    [`statuses.${stageId}`]: newCode
+                });
+                setStatusModal(null);
             };
 
-            const toggleStep = (id, step) => {
-                const proj = projects.find(p => p.id === id);
-                const newChecklist = { ...proj.checklist, [step]: !proj.checklist[step] };
-                db.collection("projects").doc(id).update({ checklist: newChecklist });
+            const calculateProgress = (projStatuses) => {
+                if (!stages.length || !projStatuses) return 0;
+                let doneCount = 0;
+                stages.forEach(stage => {
+                    if (projStatuses[stage.id] === 3) doneCount++;
+                });
+                return Math.round((doneCount / stages.length) * 100);
+            };
+
+            const getStatusCell = (proj, stage) => {
+                const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
+                const statusDef = statusOptions.find(s => s.code === code) || statusOptions[0];
+                
+                return (
+                    <td key={stage.id} onClick={() => setStatusModal({ 
+                        projectId: proj.id, 
+                        stageId: stage.id, 
+                        currentCode: code,
+                        projName: proj.name,
+                        stageLabel: stage.label 
+                    })}>
+                        <div className={`status-cell ${statusDef.colorClass}`}>
+                            {statusDef.label}
+                        </div>
+                    </td>
+                );
             };
 
             if (!isLoggedIn) {
                 return (
-                    <div className="min-h-screen flex items-center justify-center bg-[#020617]">
-                        <div className="glass p-12 rounded-[2rem] w-full max-w-md text-center border-t-4 border-blue-500">
-                            <h1 className="text-3xl font-black mb-8 text-blue-500 italic">AQUAPOOLCO CHEN</h1>
-                            <input type="password" placeholder="סיסמה" onChange={(e)=>setPass(e.target.value)} className="w-full p-4 bg-slate-800 rounded-xl mb-6 text-center text-white outline-none border border-white/10" />
-                            <button onClick={() => pass === "2026" ? setIsLoggedIn(true) : alert("שגוי")} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black">כניסה</button>
+                    <div className="min-h-screen flex items-center justify-center p-4">
+                        <div className="glass p-12 rounded-[2rem] w-full max-w-sm text-center border-t-4 border-blue-500 shadow-2xl">
+                            <img src={LOGO_URL} alt="Aquapoolco Logo" className="h-24 mx-auto mb-6 rounded-xl bg-white p-2 shadow-lg" />
+                            <h1 className="text-2xl font-black mb-1 text-white tracking-wide">פורטל מנהלים</h1>
+                            <p className="text-slate-400 font-bold mb-8 uppercase text-xs tracking-widest">מחלקת עבודות גמר</p>
+                            <input type="password" placeholder="סיסמה (2026)" onChange={e=>setPass(e.target.value)} className="w-full p-4 bg-slate-900 rounded-xl mb-6 text-center text-white outline-none border border-slate-700 focus:border-blue-500" />
+                            <button onClick={() => pass === "2026" ? setIsLoggedIn(true) : alert("גישה נדחתה")} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black transition-all shadow-lg">כניסה למערכת</button>
                         </div>
                     </div>
                 );
             }
 
             return (
-                <div className="min-h-screen pb-20 px-4 md:px-10">
-                    <header className="flex justify-between items-center py-6">
-                        <div className="text-2xl font-black italic text-white">AQUAPOOLCO <span className="text-blue-500">CHEN</span></div>
-                        <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-6 py-2 rounded-full font-bold">➕ פרויקט חדש</button>
+                <div className="min-h-screen flex flex-col">
+                    {/* Header עם הלוגו */}
+                    <header className="glass px-6 py-4 flex justify-between items-center sticky top-0 z-30">
+                        <div className="flex items-center gap-6">
+                            <div className="flex items-center gap-4 border-l border-white/10 pl-6">
+                                <img src={LOGO_URL} alt="Aquapoolco Logo" className="h-10 bg-white rounded p-1" />
+                                <div className="hidden sm:block">
+                                    <div className="text-lg font-black text-white leading-tight">אקוופולקו חן בע"מ</div>
+                                    <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">מערכת ניהול - מחלקת טיח</div>
+                                </div>
+                            </div>
+                            <nav className="hidden md:flex gap-2">
+                                <button onClick={() => setActiveTab("board")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'board' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>לוח ניהול (Board)</button>
+                                <button onClick={() => setActiveTab("settings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>⚙️ עריכת לחצנים</button>
+                            </nav>
+                        </div>
+                        <div className="flex gap-4 items-center">
+                            <button onClick={() => setShowAddProject(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-bold shadow-lg transition-all text-sm">➕ הוסף פרויקט</button>
+                            <button onClick={() => setIsLoggedIn(false)} className="text-slate-500 hover:text-white font-bold text-sm hidden md:block transition-colors">התנתק</button>
+                        </div>
                     </header>
 
-                    <div className="grid grid-cols-1 gap-8 max-w-4xl mx-auto">
-                        {projects.map(proj => (
-                            <div key={proj.id} id={`report-${proj.id}`} className="glass rounded-[2rem] p-8 relative border-r-8 border-blue-500">
-                                <div className="flex justify-between items-start mb-6">
+                    {/* ניווט מובייל */}
+                    <div className="md:hidden flex bg-slate-900 p-2 gap-2 overflow-x-auto border-b border-white/5">
+                        <button onClick={() => setActiveTab("board")} className={`flex-shrink-0 px-4 py-2 rounded-lg font-bold text-sm ${activeTab === 'board' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>לוח ניהול</button>
+                        <button onClick={() => setActiveTab("settings")} className={`flex-shrink-0 px-4 py-2 rounded-lg font-bold text-sm ${activeTab === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-400'}`}>⚙️ עריכת לחצנים</button>
+                    </div>
+
+                    <main className="flex-1 p-4 md:p-8">
+                        
+                        {/* תצוגת Board */}
+                        {activeTab === "board" && (
+                            <div className="animate-fade-in max-w-[1400px] mx-auto">
+                                <div className="mb-6 flex justify-between items-end">
                                     <div>
-                                        <h3 className="text-3xl font-black text-white">{proj.name}</h3>
-                                        <p className="text-blue-400 font-bold">📍 {proj.address} | 👷 {proj.team}</p>
+                                        <h2 className="text-3xl font-black text-white">פורטל ניהול מחלקת טיח ועבודות גמר</h2>
+                                        <p className="text-slate-400 text-sm mt-1">מבט כולל על התקדמות הפרויקטים בשטח | מתעדכן בזמן אמת</p>
                                     </div>
-                                    <button onClick={() => exportPDF(proj.id)} className="no-print bg-white/10 p-3 rounded-xl hover:bg-blue-600 transition text-sm font-bold">📥 הורד PDF</button>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <div className="space-y-3">
-                                        <h4 className="text-slate-400 font-bold uppercase text-xs mb-4">צ'ק ליסט פיקוח מחלקת טיח:</h4>
-                                        {[
-                                            {id: 'prep', label: 'הכנת תשתית וניקיון'},
-                                            {id: 'sealing1', label: 'איטום ראשוני'},
-                                            {id: 'plaster', label: 'שכבת טיח מיישר'},
-                                            {id: 'sealing2', label: 'איטום סופי'},
-                                            {id: 'flood', label: 'בדיקת הצפה'}
-                                        ].map(step => (
-                                            <div key={step.id} onClick={() => toggleStep(proj.id, step.id)} className="flex items-center gap-4 p-3 bg-white/5 rounded-xl cursor-pointer">
-                                                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center ${proj.checklist?.[step.id] ? 'bg-blue-500 border-blue-500' : 'border-slate-600'}`}>
-                                                    {proj.checklist?.[step.id] && "✓"}
-                                                </div>
-                                                <span className={proj.checklist?.[step.id] ? "text-slate-500 line-through" : "text-white font-bold"}>{step.label}</span>
+                                <div className="table-container bg-[#1e293b]/50">
+                                    <table className="w-full text-right">
+                                        <thead>
+                                            <tr>
+                                                <th className="w-10"></th>
+                                                <th className="min-w-[200px] border-r-4 border-blue-500 rounded-tr-lg">שם פרויקט / לקוח</th>
+                                                <th className="min-w-[120px]">צוות מבצע</th>
+                                                {stages.map(stage => (
+                                                    <th key={stage.id} className="min-w-[140px] text-center">{stage.label}</th>
+                                                ))}
+                                                <th className="min-w-[150px]">התקדמות כללית</th>
+                                                <th className="w-10"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {projects.length === 0 && (
+                                                <tr><td colSpan={stages.length + 5} className="text-center p-10 text-slate-500">אין פרויקטים במערכת. לחץ על "הוסף פרויקט" למעלה.</td></tr>
+                                            )}
+                                            {projects.map(proj => {
+                                                const progress = calculateProgress(proj.statuses);
+                                                return (
+                                                    <tr key={proj.id} className="group transition-colors">
+                                                        <td className="border-r-4 border-transparent group-hover:border-blue-500"></td>
+                                                        <td>
+                                                            <div className="font-black text-white text-lg">{proj.name}</div>
+                                                            <div className="text-xs text-slate-400">📍 {proj.address}</div>
+                                                        </td>
+                                                        <td>
+                                                            <div className="bg-slate-800 text-slate-300 px-3 py-1 rounded-full text-xs font-bold inline-block border border-white/5">
+                                                                👷 {proj.team}
+                                                            </div>
+                                                        </td>
+                                                        
+                                                        {stages.map(stage => getStatusCell(proj, stage))}
+                                                        
+                                                        <td className="px-4">
+                                                            <div className="flex items-center gap-3">
+                                                                <span className="text-xs font-bold w-8 text-slate-300">{progress}%</span>
+                                                                <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
+                                                                    <div className={`h-full rounded-full transition-all duration-700 ${progress === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }}></div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td>
+                                                            <button onClick={() => { if(window.confirm('האם אתה בטוח שברצונך למחוק פרויקט זה?')) db.collection("projects").doc(proj.id).delete(); }} className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-500 transition-all p-2">🗑️</button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* הגדרות - פלטפורמה אחורית */}
+                        {activeTab === "settings" && (
+                            <div className="animate-fade-in max-w-3xl mx-auto">
+                                <div className="glass p-8 rounded-[2rem] border-t-4 border-purple-500">
+                                    <h2 className="text-3xl font-black text-white mb-2">⚙️ עריכת עמודות ולחצנים</h2>
+                                    <p className="text-slate-400 text-sm mb-8">הגדר את שלבי העבודה. כל שינוי כאן ישתקף מיד בלוח של כל הצוותים.</p>
+
+                                    <div className="space-y-4 mb-8">
+                                        {stages.map((stage, index) => (
+                                            <div key={stage.id} className="flex items-center gap-4 bg-slate-800/50 p-4 rounded-xl border border-white/5">
+                                                <div className="text-slate-500 font-bold w-6">{index + 1}.</div>
+                                                <input 
+                                                    value={stage.label}
+                                                    onChange={(e) => {
+                                                        const newStages = [...stages];
+                                                        newStages[index].label = e.target.value;
+                                                        setStages(newStages);
+                                                    }}
+                                                    className="flex-1 bg-slate-900 text-white px-4 py-2 rounded-lg outline-none border border-slate-700 focus:border-purple-500 font-bold"
+                                                />
+                                                <button onClick={() => {
+                                                    const newStages = stages.filter(s => s.id !== stage.id);
+                                                    setStages(newStages);
+                                                }} className="text-red-400 hover:text-red-300 font-bold px-3 py-2 bg-red-400/10 rounded-lg transition-colors">מחק עמודה</button>
                                             </div>
                                         ))}
                                     </div>
-                                    
-                                    <div className="flex flex-col">
-                                        <h4 className="text-slate-400 font-bold uppercase text-xs mb-4">חתימת מנהל עבודה בסיום:</h4>
-                                        <canvas ref={canvasRef} className="signature-pad w-full h-40 bg-white" />
-                                        <button onClick={() => sigPad.current.clear()} className="no-print mt-2 text-xs text-slate-500 underline">נקה חתימה</button>
+
+                                    <div className="flex gap-4 pt-6 border-t border-white/10">
+                                        <button onClick={() => {
+                                            const newId = 's' + Date.now();
+                                            setStages([...stages, { id: newId, label: 'שלב עבודה חדש' }]);
+                                        }} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold transition border border-white/10">
+                                            ➕ הוסף לחצן חדש
+                                        </button>
+                                        <button onClick={() => {
+                                            db.collection("settings").doc("general").update({ stages });
+                                            alert("ההגדרות נשמרו! הלוח עודכן בהצלחה.");
+                                            setActiveTab("board");
+                                        }} className="flex-1 bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-xl font-black shadow-lg shadow-purple-500/20 transition">
+                                            💾 שמור שינויים למערכת
+                                        </button>
                                     </div>
                                 </div>
-                                <div className="mt-8 pt-6 border-t border-white/10 text-center">
-                                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">Aquapoolco Chen Ltd - Official Service Report</p>
-                                </div>
                             </div>
-                        ))}
-                    </div>
+                        )}
+                    </main>
 
-                    {showAddModal && (
-                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={(e) => {
+                    {/* חלון עדכון סטטוס קופץ (כולל לוגו) */}
+                    {statusModal && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setStatusModal(null)}>
+                            <div className="glass p-8 rounded-[2rem] w-full max-w-sm relative" onClick={e => e.stopPropagation()}>
+                                <img src={LOGO_URL} alt="Logo" className="h-8 absolute top-6 left-6 bg-white rounded p-1 opacity-50" />
+                                <h3 className="text-right text-slate-400 text-sm font-bold mb-1">פרויקט: {statusModal.projName}</h3>
+                                <h2 className="text-right text-2xl font-black text-white mb-6 border-b border-white/10 pb-4">{statusModal.stageLabel}</h2>
+                                
+                                <div className="space-y-3">
+                                    {statusOptions.map(opt => (
+                                        <button 
+                                            key={opt.code} 
+                                            onClick={() => updateStatus(statusModal.projectId, statusModal.stageId, opt.code)}
+                                            className={`w-full py-4 rounded-xl font-black text-lg transition-transform hover:scale-105 ${opt.colorClass} ${statusModal.currentCode === opt.code ? 'ring-4 ring-white shadow-xl' : 'opacity-90'}`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button onClick={() => setStatusModal(null)} className="w-full mt-6 text-slate-500 font-bold hover:text-white transition">סגור ללא שינוי</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* מודאל הוספת פרויקט (כולל לוגו) */}
+                    {showAddProject && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <form onSubmit={e => {
                                 e.preventDefault();
                                 db.collection("projects").add({
-                                    name: e.target.name.value,
-                                    address: e.target.address.value,
-                                    team: e.target.team.value,
-                                    checklist: { prep: false, sealing1: false, plaster: false, sealing2: false, flood: false },
+                                    name: e.target.n.value,
+                                    address: e.target.a.value,
+                                    team: e.target.t.value,
+                                    statuses: {},
                                     createdAt: firebase.firestore.Timestamp.now()
-                                });
-                                setShowAddModal(false);
-                            }} className="glass p-10 rounded-[2rem] w-full max-w-lg space-y-4">
-                                <h2 className="text-2xl font-black">פרויקט חדש</h2>
-                                <input name="name" placeholder="שם הלקוח" className="w-full p-4 bg-slate-800 rounded-xl" required />
-                                <input name="address" placeholder="כתובת" className="w-full p-4 bg-slate-800 rounded-xl" required />
-                                <input name="team" placeholder="שם הצוות" className="w-full p-4 bg-slate-800 rounded-xl" required />
-                                <button type="submit" className="w-full bg-blue-600 py-4 rounded-xl font-bold">שמור</button>
-                                <button onClick={() => setShowAddModal(false)} type="button" className="w-full text-slate-400">ביטול</button>
+                                }).then(() => setShowAddProject(false));
+                            }} className="glass p-10 rounded-[2rem] w-full max-w-md space-y-5 border-t-4 border-blue-500 shadow-2xl relative">
+                                
+                                <div className="flex justify-center mb-2">
+                                    <img src={LOGO_URL} alt="Logo" className="h-12 bg-white rounded-lg p-1" />
+                                </div>
+                                <h2 className="text-white text-center text-2xl font-black mb-6">פתיחת תיק פרויקט</h2>
+                                
+                                <input name="n" placeholder="שם הלקוח / הפרויקט" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none border border-slate-700 focus:border-blue-500" required />
+                                <input name="a" placeholder="כתובת האתר" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none border border-slate-700 focus:border-blue-500" required />
+                                <input name="t" placeholder="שם הצוות (למשל: צוות א')" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none border border-slate-700 focus:border-blue-500" required />
+                                
+                                <div className="flex gap-3 pt-4">
+                                    <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black transition">פתח פרויקט</button>
+                                    <button type="button" onClick={()=>setShowAddProject(false)} className="px-6 text-slate-400 font-bold hover:bg-white/5 rounded-xl transition">ביטול</button>
+                                </div>
                             </form>
                         </div>
                     )}
