@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>אקוופולקו חן - ניהול מחלקת טיח</title>
+    <title>אקוופולקו חן - ניהול מחלקה</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -11,13 +11,12 @@
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-firestore-compat.js"></script>
 </head>
-<body class="bg-slate-100">
+<body class="bg-slate-50 text-right">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // הגדרות Firebase שנתת לי
         const firebaseConfig = {
             apiKey: "AIzaSyDld2PBV8RugpAEZyTmkMrfBZNDZp4GkJw",
             authDomain: "aquapoolco-manager.firebaseapp.com",
@@ -27,109 +26,127 @@
             appId: "1:874091382276:web:35865613a6705c86f89751"
         };
 
-        // אתחול Firebase
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
         function App() {
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [projects, setProjects] = useState([]);
-            const [selectedProject, setSelectedProject] = useState(null);
             const [showAddModal, setShowAddModal] = useState(false);
+            const [password, setPassword] = useState("");
 
-            // טעינת פרויקטים מהענן
+            // טעינת נתונים
             useEffect(() => {
-                const unsubscribe = db.collection("projects").onSnapshot((snapshot) => {
-                    const projectsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setProjects(projectsData);
+                const unsubscribe = db.collection("projects").onSnapshot(snapshot => {
+                    setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 });
                 return () => unsubscribe();
             }, []);
+
+            // התחברות פשוטה (סיסמה: 1234 - תוכל לשנות פה)
+            const handleLogin = () => {
+                if (password === "2026") setIsLoggedIn(true);
+                else alert("סיסמה שגויה");
+            };
 
             const addProject = (e) => {
                 e.preventDefault();
                 const name = e.target.name.value;
                 const address = e.target.address.value;
+                const team = e.target.team.value;
                 db.collection("projects").add({
-                    name,
-                    address,
-                    team: "צוות א",
-                    status: "הכנת תשתית",
-                    checklist: { prep: false, sealing1: false, plaster: false, sealing2: false, flood: false }
+                    name, address, team,
+                    status: "בביצוע",
+                    checklist: { prep: false, sealing1: false, plaster: false, sealing2: false, flood: false },
+                    createdAt: new Date()
                 });
                 setShowAddModal(false);
             };
 
-            const toggleCheck = (projId, step) => {
-                const proj = projects.find(p => p.id === projId);
+            const toggleStep = (id, step) => {
+                const proj = projects.find(p => p.id === id);
                 const newChecklist = { ...proj.checklist, [step]: !proj.checklist[step] };
-                db.collection("projects").doc(projId).update({ checklist: newChecklist });
+                db.collection("projects").doc(id).update({ checklist: newChecklist });
             };
 
+            const deleteProject = (id) => {
+                if(confirm("למחוק את הפרויקט?")) db.collection("projects").doc(id).delete();
+            };
+
+            if (!isLoggedIn) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-blue-900 p-4">
+                        <div className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-md text-center">
+                            <img src="https://i.imgur.com/WfVp07m.jpg" className="h-20 mx-auto mb-6" />
+                            <h2 className="text-2xl font-black text-slate-800 mb-6 font-sans">כניסת מנהל מחלקה</h2>
+                            <input type="password" placeholder="הכנס סיסמה" onChange={(e)=>setPassword(e.target.value)} className="w-full p-4 bg-slate-100 rounded-2xl mb-4 text-center text-2xl outline-none" />
+                            <button onClick={handleLogin} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/30">כניסה למערכת</button>
+                        </div>
+                    </div>
+                );
+            }
+
             return (
-                <div className="min-h-screen font-sans pb-10">
-                    {/* Header עם לוגו */}
-                    <header className="bg-white shadow-md p-4 mb-8 sticky top-0 z-10">
-                        <div className="max-w-5xl mx-auto flex justify-between items-center">
-                            <img src="https://i.imgur.com/WfVp07m.jpg" alt="Aquapoolco Logo" className="h-16" />
-                            <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-6 py-2 rounded-full font-bold shadow-lg hover:bg-blue-700 transition">
-                                ➕ פרויקט חדש
-                            </button>
+                <div className="min-h-screen pb-20 font-sans">
+                    <header className="bg-white shadow-md p-4 sticky top-0 z-20 flex justify-between items-center px-6">
+                        <img src="https://i.imgur.com/WfVp07m.jpg" className="h-12 md:h-16" />
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-5 py-2 rounded-xl font-bold shadow-md hover:bg-blue-700">➕ פרויקט</button>
+                            <button onClick={() => setIsLoggedIn(false)} className="bg-slate-100 text-slate-500 px-4 py-2 rounded-xl font-bold">יציאה</button>
                         </div>
                     </header>
 
-                    <main className="max-w-5xl mx-auto px-4">
-                        <h2 className="text-2xl font-black text-slate-800 mb-6 border-r-4 border-blue-500 pr-3">ניהול מחלקת טיח בריכות</h2>
+                    <div className="max-w-5xl mx-auto p-4 mt-6">
+                        <h2 className="text-2xl font-black text-slate-800 mb-6 pr-3 border-r-4 border-blue-500">ניהול ביצוע טיח בשטח</h2>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {projects.map(proj => (
-                                <div key={proj.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 hover:shadow-md transition">
+                                <div key={proj.id} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
                                     <div className="flex justify-between items-start mb-4">
-                                        <h3 className="text-xl font-black text-blue-900">{proj.name}</h3>
-                                        <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{proj.status}</span>
+                                        <h3 className="text-2xl font-black text-blue-900 leading-tight">{proj.name}</h3>
+                                        <button onClick={() => deleteProject(proj.id)} className="text-slate-300 hover:text-red-500">🗑️</button>
                                     </div>
-                                    <p className="text-slate-500 font-bold mb-4">📍 {proj.address}</p>
+                                    <p className="text-slate-500 font-bold mb-4">📍 {proj.address} | 👷 {proj.team}</p>
                                     
-                                    <div className="bg-slate-50 p-4 rounded-xl mb-4">
-                                        <h4 className="font-black text-sm mb-3 text-slate-700">צ'ק ליסט פיקוח:</h4>
-                                        <div className="space-y-2">
-                                            {Object.entries({
-                                                prep: "הכנת תשתית וניקיון",
-                                                sealing1: "איטום ראשוני",
-                                                plaster: "שכבת טיח מיישר",
-                                                sealing2: "איטום סופי",
-                                                flood: "בדיקת הצפה"
-                                            }).map(([key, label]) => (
-                                                <div key={key} className="flex items-center gap-3 cursor-pointer" onClick={() => toggleCheck(proj.id, key)}>
-                                                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${proj.checklist?.[key] ? 'bg-green-500 border-green-500' : 'border-slate-300'}`}>
-                                                        {proj.checklist?.[key] && <span className="text-white text-xs">✓</span>}
-                                                    </div>
-                                                    <span className={`text-sm ${proj.checklist?.[key] ? 'text-slate-400 line-through' : 'text-slate-700 font-bold'}`}>{label}</span>
+                                    <div className="space-y-2 bg-slate-50 p-5 rounded-2xl">
+                                        <h4 className="font-black text-slate-800 mb-3 underline">צ'ק ליסט פיקוח:</h4>
+                                        {[
+                                            {id: 'prep', label: 'הכנת תשתית וניקיון'},
+                                            {id: 'sealing1', label: 'איטום ראשוני'},
+                                            {id: 'plaster', label: 'שכבת טיח מיישר'},
+                                            {id: 'sealing2', label: 'איטום סופי'},
+                                            {id: 'flood', label: 'בדיקת הצפה'}
+                                        ].map(step => (
+                                            <div key={step.id} onClick={() => toggleStep(proj.id, step.id)} className="flex items-center gap-3 cursor-pointer group">
+                                                <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition ${proj.checklist?.[step.id] ? 'bg-green-500 border-green-500' : 'border-slate-300 bg-white'}`}>
+                                                    {proj.checklist?.[step.id] && <span className="text-white font-bold">✓</span>}
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex gap-2">
-                                        <button className="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg font-bold text-sm">📄 תוכניות</button>
-                                        <button className="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg font-bold text-sm">📏 כמויות</button>
+                                                <span className={`font-bold ${proj.checklist?.[step.id] ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{step.label}</span>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             ))}
                         </div>
-                    </main>
+                    </div>
 
-                    {/* מודאל הוספה */}
                     {showAddModal && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={addProject} className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl">
-                                <h3 className="text-2xl font-black mb-6 text-blue-900">הוספת פרויקט חדש</h3>
-                                <div className="space-y-4">
-                                    <input name="name" placeholder="שם הפרויקט" className="w-full p-4 bg-slate-100 rounded-xl outline-none font-bold" required />
-                                    <input name="address" placeholder="כתובת" className="w-full p-4 bg-slate-100 rounded-xl outline-none font-bold" required />
-                                    <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-xl font-black shadow-lg">שמור במערכת</button>
-                                    <button type="button" onClick={() => setShowAddModal(false)} className="w-full text-slate-500 font-bold">ביטול</button>
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <form onSubmit={addProject} className="bg-white rounded-[40px] p-8 w-full max-w-md shadow-2xl text-right">
+                                <h2 className="text-2xl font-black mb-6 text-blue-900">הקמת פרויקט חדש</h2>
+                                <div className="space-y-4 font-bold">
+                                    <label>שם הפרויקט</label>
+                                    <input name="name" className="w-full p-4 bg-slate-100 rounded-2xl outline-none" placeholder="לדוגמה: וילה כפר סבא" required />
+                                    <label>כתובת</label>
+                                    <input name="address" className="w-full p-4 bg-slate-100 rounded-2xl outline-none" placeholder="רחוב ומספר" required />
+                                    <label>צוות אחראי</label>
+                                    <select name="team" className="w-full p-4 bg-slate-100 rounded-2xl outline-none appearance-none">
+                                        <option>צוות א' - אלכס</option>
+                                        <option>צוות ב' - סעיד</option>
+                                        <option>צוות ג' - מוחמד</option>
+                                    </select>
+                                    <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg mt-4">שמור ופתח פרויקט</button>
+                                    <button type="button" onClick={() => setShowAddModal(false)} className="w-full text-slate-400 font-bold">ביטול</button>
                                 </div>
                             </form>
                         </div>
