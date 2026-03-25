@@ -13,11 +13,7 @@
     <style>
         body { background-color: #020617; color: white; font-family: sans-serif; }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
-        /* עיצוב מיוחד לכפתור המצלמה */
-        .file-upload-btn::-webkit-file-upload-button {
-            visibility: hidden;
-            display: none;
-        }
+        .file-upload-btn::-webkit-file-upload-button { visibility: hidden; display: none; }
     </style>
 </head>
 <body>
@@ -45,9 +41,13 @@
             const [showAdd, setShowAdd] = useState(false);
 
             useEffect(() => {
-                const unsub = db.collection("projects").orderBy("createdAt", "desc").onSnapshot(s => 
-                    setProjects(s.docs.map(d => ({id: d.id, ...d.data()})))
-                );
+                // הבאנו את הנתונים בלי סינון מורכב כדי שלא יקרוס
+                const unsub = db.collection("projects").onSnapshot(s => {
+                    const data = s.docs.map(d => ({id: d.id, ...d.data()}));
+                    // סידור ידני לפי תאריך מהחדש לישן
+                    data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                    setProjects(data);
+                });
                 return unsub;
             }, []);
 
@@ -58,8 +58,9 @@
                 });
             };
 
+            // הפונקציה המוגנת! לא קורסת גם אם אין תאריך
             const calculateDays = (timestamp) => {
-                if (!timestamp) return "חדש";
+                if (!timestamp || typeof timestamp.toDate !== 'function') return "ישן (ללא תאריך)";
                 const diff = Math.floor((new Date() - timestamp.toDate()) / (1000 * 60 * 60 * 24));
                 return diff === 0 ? "היום" : diff + " ימים";
             };
@@ -94,7 +95,7 @@
                                     </div>
                                     <div className="text-left bg-slate-800/50 p-3 rounded-xl">
                                         <div className="text-[10px] text-slate-500 font-bold uppercase">זמן ריצה</div>
-                                        <div className="text-blue-500 font-black text-lg">{calculateDays(p.createdAt)}</div>
+                                        <div className="text-blue-500 font-black text-sm">{calculateDays(p.createdAt)}</div>
                                     </div>
                                 </div>
                                 
@@ -102,4 +103,20 @@
                                     <div className="space-y-3 bg-slate-900/50 p-5 rounded-2xl">
                                         <h4 className="text-slate-400 text-xs font-bold uppercase mb-4">צ'ק ליסט שלבי ביצוע:</h4>
                                         {Object.entries({
-                                            prep: "הכנת תשתית ו
+                                            prep: "הכנת תשתית וניקיון",
+                                            sealing1: "איטום ראשוני",
+                                            plaster: "שכבת טיח מיישר",
+                                            sealing2: "איטום סופי",
+                                            flood: "בדיקת הצפה"
+                                        }).map(([key, label]) => (
+                                            <div key={key} onClick={() => toggle(p.id, key)} className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 rounded-xl cursor-pointer transition">
+                                                <span className={`font-bold text-sm ${p.checklist?.[key] ? "text-slate-500 line-through" : "text-slate-200"}`}>{label}</span>
+                                                <div className={`w-6 h-6 rounded flex items-center justify-center border-2 ${p.checklist?.[key] ? 'bg-blue-500 border-blue-500 shadow-lg shadow-blue-500/40' : 'border-slate-600'}`}>
+                                                    {p.checklist?.[key] && <span className="text-white text-xs font-black">✓</span>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="space-y-4 bg-slate-900/50 p-5 rounded-2xl flex flex-col justify-center">
+                                        <h4 className="text-slate-400 text-xs font-bold uppercase
