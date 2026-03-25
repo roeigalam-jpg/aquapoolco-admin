@@ -1,13 +1,57 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>אקוופולקו חן - ניהול פרויקטים</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>אקוופולקו חן בע"מ</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-  </head>
-  <body>
+</head>
+<body class="bg-slate-50">
     <div id="root"></div>
-    <script type="module" src="/src/App.jsx"></script>
-  </body>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        function App() {
+            const [projects] = useState([
+                { id: 1, name: 'וילה משפחת לוי - קיסריה', address: 'רחוב האורנים 12', team: 'צוות א - אלכס', status: 'בביצוע' },
+                { id: 2, name: 'בריכת שחייה אולימפית - כפר סבא', address: 'מרכז ספורט עירוני', team: 'צוות ב - סעיד', status: 'חדש' }
+            ]);
+
+            return (
+                <div className="min-h-screen p-4 font-sans">
+                    <header className="max-w-5xl mx-auto flex justify-between items-center mb-8 bg-white p-6 rounded-2xl shadow-md border-b-4 border-blue-600">
+                        <div>
+                            <h1 className="text-3xl font-black text-blue-900 italic">אקוופולקו חן בע"מ</h1>
+                            <p className="text-slate-500 font-bold">מערכת ניהול פרויקטים</p>
+                        </div>
+                        <button className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg">הקמת פרויקט</button>
+                    </header>
+
+                    <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {projects.map(proj => (
+                            <div key={proj.id} className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+                                <h3 className="text-2xl font-black text-slate-800 mb-4">{proj.name}</h3>
+                                <div className="space-y-2 mb-6">
+                                    <p className="font-bold text-slate-600">📍 {proj.address}</p>
+                                    <p className="font-bold text-slate-600">👷 {proj.team}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button className="bg-blue-50 text-blue-700 py-3 rounded-xl font-bold">תוכנית</button>
+                                    <button className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">כמויות</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
 </html>
