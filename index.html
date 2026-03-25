@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aquapoolco Elite</title>
+    <title>Aquapoolco Elite Management</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -11,9 +11,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-firestore-compat.js"></script>
     <style>
-        body { background-color: #020617; color: white; font-family: sans-serif; }
+        body { background-color: #020617; color: white; font-family: system-ui, -apple-system, sans-serif; }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
-        .file-upload-btn::-webkit-file-upload-button { visibility: hidden; display: none; }
     </style>
 </head>
 <body>
@@ -39,39 +38,60 @@
             const [projects, setProjects] = useState([]);
             const [pass, setPass] = useState("");
             const [showAdd, setShowAdd] = useState(false);
+            const [errorMsg, setErrorMsg] = useState("");
 
+            // משיכת נתונים עם הגנה מלאה מקריסות
             useEffect(() => {
-                // הבאנו את הנתונים בלי סינון מורכב כדי שלא יקרוס
-                const unsub = db.collection("projects").onSnapshot(s => {
-                    const data = s.docs.map(d => ({id: d.id, ...d.data()}));
-                    // סידור ידני לפי תאריך מהחדש לישן
-                    data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-                    setProjects(data);
-                });
-                return unsub;
+                try {
+                    const unsub = db.collection("projects").onSnapshot(s => {
+                        try {
+                            const data = s.docs.map(d => ({id: d.id, ...d.data()}));
+                            setProjects(data);
+                            setErrorMsg(""); 
+                        } catch(err) {
+                            setErrorMsg("שגיאה בהצגת הפרויקטים: " + err.message);
+                        }
+                    }, err => {
+                        setErrorMsg("שגיאת התחברות לשרת: " + err.message);
+                    });
+                    return unsub;
+                } catch(err) {
+                    setErrorMsg("מערכת הנתונים לא מגיבה: " + err.message);
+                }
             }, []);
 
             const toggle = (id, step) => {
                 const p = projects.find(x => x.id === id);
+                if(!p || !p.checklist) return; // הגנה: אם אין צ'ק ליסט, אל תקרוס
                 db.collection("projects").doc(id).update({
                     [`checklist.${step}`]: !p.checklist[step]
-                });
+                }).catch(err => alert("שגיאה בעדכון: " + err.message));
             };
 
-            // הפונקציה המוגנת! לא קורסת גם אם אין תאריך
-            const calculateDays = (timestamp) => {
-                if (!timestamp || typeof timestamp.toDate !== 'function') return "ישן (ללא תאריך)";
-                const diff = Math.floor((new Date() - timestamp.toDate()) / (1000 * 60 * 60 * 24));
-                return diff === 0 ? "היום" : diff + " ימים";
+            const deleteProj = (id) => {
+                if(window.confirm("האם אתה בטוח שברצונך למחוק פרויקט זה?")) {
+                    db.collection("projects").doc(id).delete();
+                }
             };
+
+            if (errorMsg) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-4">
+                        <div className="glass p-10 rounded-2xl border border-red-500 text-center">
+                            <h2 className="text-red-500 text-2xl font-bold mb-4">⚠️ תקלה במערכת</h2>
+                            <p>{errorMsg}</p>
+                        </div>
+                    </div>
+                );
+            }
 
             if (!isLoggedIn) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="glass p-12 rounded-[2rem] w-full max-w-sm text-center border-t-4 border-blue-500 shadow-2xl">
+                        <div className="glass p-10 rounded-[2rem] w-full max-w-sm text-center border-t-4 border-blue-500 shadow-2xl">
                             <h1 className="text-4xl font-black mb-2 italic text-white tracking-tighter">AQUAPOOLCO</h1>
                             <p className="text-blue-500 font-bold mb-8 uppercase text-sm">Elite Management</p>
-                            <input type="password" placeholder="סיסמה (2026)" onChange={e=>setPass(e.target.value)} className="w-full p-4 bg-slate-800 rounded-xl mb-4 text-center outline-none border border-white/10 text-xl" />
+                            <input type="password" placeholder="סיסמה (2026)" onChange={e=>setPass(e.target.value)} className="w-full p-4 bg-slate-800 rounded-xl mb-4 text-center outline-none border border-white/10 text-xl text-white" />
                             <button onClick={() => pass === "2026" ? setIsLoggedIn(true) : alert("סיסמה שגויה")} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-black transition">כניסה למערכת</button>
                         </div>
                     </div>
@@ -81,42 +101,86 @@
             return (
                 <div className="p-4 md:p-8 max-w-5xl mx-auto pb-20">
                     <header className="flex justify-between items-center mb-10 glass p-6 rounded-2xl border-b border-white/10">
-                        <div className="text-3xl font-black italic tracking-tighter">AQUAPOOLCO <span className="text-blue-500">CHEN</span></div>
-                        <button onClick={() => setShowAdd(true)} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-full font-bold shadow-lg shadow-blue-500/20 transition">➕ פרויקט חדש</button>
+                        <div className="text-2xl font-black italic tracking-tighter">AQUAPOOLCO <span className="text-blue-500">CHEN</span></div>
+                        <button onClick={() => setShowAdd(true)} className="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-full font-bold shadow-lg transition">➕ הוסף פרויקט</button>
                     </header>
 
-                    <div className="grid gap-8">
+                    <div className="grid gap-6">
+                        {projects.length === 0 && (
+                            <div className="text-center text-slate-500 mt-10 p-10 glass rounded-2xl">אין פרויקטים במערכת. לחץ על "הוסף פרויקט" כדי להתחיל.</div>
+                        )}
+                        
                         {projects.map(p => (
-                            <div key={p.id} className="glass p-8 rounded-[2rem] border-r-4 border-blue-500 hover:border-blue-400 transition-all">
-                                <div className="flex justify-between items-start mb-6">
+                            <div key={p.id} className="glass p-6 rounded-[2rem] border-r-4 border-blue-500 relative">
+                                <div className="flex justify-between items-start mb-4">
                                     <div>
-                                        <h3 className="text-3xl font-black mb-2 text-white">{p.name}</h3>
-                                        <p className="text-blue-400 font-bold text-sm">📍 {p.address} | 👷 {p.team}</p>
+                                        <h3 className="text-2xl font-bold mb-1 text-white">{p.name || "פרויקט ללא שם"}</h3>
+                                        <p className="text-blue-400 text-sm font-bold">📍 {p.address || "כתובת לא הוזנה"} | 👷 {p.team || "צוות לא הוגדר"}</p>
                                     </div>
-                                    <div className="text-left bg-slate-800/50 p-3 rounded-xl">
-                                        <div className="text-[10px] text-slate-500 font-bold uppercase">זמן ריצה</div>
-                                        <div className="text-blue-500 font-black text-sm">{calculateDays(p.createdAt)}</div>
-                                    </div>
+                                    <button onClick={() => deleteProj(p.id)} className="text-slate-500 hover:text-red-500 transition px-3 py-1 bg-white/5 rounded-lg text-sm">🗑️ מחק</button>
                                 </div>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <div className="space-y-3 bg-slate-900/50 p-5 rounded-2xl">
-                                        <h4 className="text-slate-400 text-xs font-bold uppercase mb-4">צ'ק ליסט שלבי ביצוע:</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                                    <div className="bg-slate-900/50 p-4 rounded-xl">
+                                        <h4 className="text-slate-400 text-xs font-bold uppercase mb-3">צ'ק ליסט שלבי טיח:</h4>
                                         {Object.entries({
-                                            prep: "הכנת תשתית וניקיון",
-                                            sealing1: "איטום ראשוני",
-                                            plaster: "שכבת טיח מיישר",
-                                            sealing2: "איטום סופי",
+                                            prep: "הכנת תשתית",
+                                            sealing1: "איטום א'",
+                                            plaster: "טיח מיישר",
+                                            sealing2: "איטום ב'",
                                             flood: "בדיקת הצפה"
-                                        }).map(([key, label]) => (
-                                            <div key={key} onClick={() => toggle(p.id, key)} className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 rounded-xl cursor-pointer transition">
-                                                <span className={`font-bold text-sm ${p.checklist?.[key] ? "text-slate-500 line-through" : "text-slate-200"}`}>{label}</span>
-                                                <div className={`w-6 h-6 rounded flex items-center justify-center border-2 ${p.checklist?.[key] ? 'bg-blue-500 border-blue-500 shadow-lg shadow-blue-500/40' : 'border-slate-600'}`}>
-                                                    {p.checklist?.[key] && <span className="text-white text-xs font-black">✓</span>}
+                                        }).map(([key, label]) => {
+                                            const isChecked = p.checklist ? p.checklist[key] : false;
+                                            return (
+                                                <div key={key} onClick={() => toggle(p.id, key)} className="flex items-center justify-between p-2 hover:bg-white/5 rounded-lg cursor-pointer mb-1 transition">
+                                                    <span className={`font-bold text-sm ${isChecked ? "text-slate-500 line-through" : "text-white"}`}>{label}</span>
+                                                    <div className={`w-5 h-5 rounded border flex items-center justify-center ${isChecked ? 'bg-blue-500 border-blue-500' : 'border-slate-600'}`}>
+                                                        {isChecked && <span className="text-white text-xs">✓</span>}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
+                                    <div className="bg-slate-900/50 p-4 rounded-xl flex flex-col justify-center gap-3">
+                                        <button className="w-full bg-blue-600/20 text-blue-400 py-3 rounded-xl text-sm font-bold border border-blue-500/20">📷 צלם תיעוד שטח</button>
+                                        <button onClick={() => window.print()} className="w-full bg-white/5 text-white py-3 rounded-xl text-sm font-bold border border-white/10 hover:bg-white/10 transition">📄 שמור דו"ח PDF</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
 
-                                    <div className="space-y-4 bg-slate-900/50 p-5 rounded-2xl flex flex-col justify-center">
-                                        <h4 className="text-slate-400 text-xs font-bold uppercase
+                    {showAdd && (
+                        <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={e => {
+                                e.preventDefault();
+                                db.collection("projects").add({
+                                    name: e.target.n.value,
+                                    address: e.target.a.value,
+                                    team: e.target.t.value,
+                                    checklist: {prep:false, sealing1:false, plaster:false, sealing2:false, flood:false},
+                                    createdAt: new Date()
+                                }).then(() => setShowAdd(false)).catch(err => alert("שגיאה בשמירה: " + err.message));
+                            }} className="glass p-8 rounded-3xl w-full max-w-md space-y-5 border-t-4 border-blue-500 shadow-2xl">
+                                <h2 className="text-white text-2xl font-black mb-4">פרויקט חדש</h2>
+                                <input name="n" placeholder="שם הלקוח / הפרויקט" className="w-full p-4 bg-slate-800 text-white rounded-xl outline-none font-bold" required />
+                                <input name="a" placeholder="כתובת האתר" className="w-full p-4 bg-slate-800 text-white rounded-xl outline-none font-bold" required />
+                                <select name="t" className="w-full p-4 bg-slate-800 text-white rounded-xl outline-none font-bold appearance-none">
+                                    <option>צוות א' - אלכס</option>
+                                    <option>צוות ב' - סעיד</option>
+                                    <option>צוות ג' - קבלן משנה</option>
+                                </select>
+                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black transition">פתח פרויקט ועדכן צוות</button>
+                                <button type="button" onClick={()=>setShowAdd(false)} className="w-full text-slate-500 font-bold">ביטול</button>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
