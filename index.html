@@ -10,7 +10,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-firestore-compat.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-storage-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
         body { font-family: 'Assistant', sans-serif; background-color: #020617; color: #f8fafc; }
@@ -36,14 +36,14 @@
 
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
+        const storage = firebase.storage();
 
         function App() {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [projects, setProjects] = useState([]);
             const [showAddModal, setShowAddModal] = useState(false);
             const [pass, setPass] = useState("");
-            const sigPad = useRef(null);
-            const canvasRef = useRef(null);
+            const [signatureData, setSignatureData] = useState(null);
 
             useEffect(() => {
                 const unsubscribe = db.collection("projects").orderBy("createdAt", "desc").onSnapshot(snapshot => {
@@ -52,22 +52,9 @@
                 return () => unsubscribe();
             }, []);
 
-            useEffect(() => {
-                if (canvasRef.current) {
-                    sigPad.current = new SignaturePad(canvasRef.current);
-                }
-            }, [isLoggedIn]);
-
             const exportPDF = (id) => {
                 const element = document.getElementById(`report-${id}`);
-                const opt = {
-                    margin: 10,
-                    filename: `Aquapoolco_Report_${id}.pdf`,
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2 },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                };
-                html2pdf().from(element).set(opt).save();
+                html2pdf().from(element).save(`Aquapoolco_Report_${id}.pdf`);
             };
 
             const toggleStep = (id, step) => {
@@ -76,13 +63,20 @@
                 db.collection("projects").doc(id).update({ checklist: newChecklist });
             };
 
+            const calculateDays = (timestamp) => {
+                if (!timestamp) return 0;
+                const start = timestamp.toDate();
+                const diff = Math.floor((new Date() - start) / (1000 * 60 * 60 * 24));
+                return diff === 0 ? "היום" : diff + " ימים";
+            };
+
             if (!isLoggedIn) {
                 return (
                     <div className="min-h-screen flex items-center justify-center bg-[#020617]">
                         <div className="glass p-12 rounded-[2rem] w-full max-w-md text-center border-t-4 border-blue-500">
-                            <h1 className="text-3xl font-black mb-8 text-blue-500 italic">AQUAPOOLCO CHEN</h1>
-                            <input type="password" placeholder="סיסמה" onChange={(e)=>setPass(e.target.value)} className="w-full p-4 bg-slate-800 rounded-xl mb-6 text-center text-white outline-none border border-white/10" />
-                            <button onClick={() => pass === "2026" ? setIsLoggedIn(true) : alert("שגוי")} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black">כניסה</button>
+                            <img src="https://i.imgur.com/WfVp07m.jpg" alt="Aquapoolco Logo" className="h-16 mx-auto mb-8" />
+                            <input type="password" placeholder="סיסמה (למשל: 2026)" onChange={(e)=>setPass(e.target.value)} className="w-full p-4 bg-slate-800 rounded-xl mb-6 text-center text-white outline-none border border-white/10" />
+                            <button onClick={() => pass === "2026" ? setIsLoggedIn(true) : alert("שגוי")} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black">כניסה למערכת Elite</button>
                         </div>
                     </div>
                 );
@@ -90,82 +84,68 @@
 
             return (
                 <div className="min-h-screen pb-20 px-4 md:px-10">
-                    <header className="flex justify-between items-center py-6">
-                        <div className="text-2xl font-black italic text-white">AQUAPOOLCO <span className="text-blue-500">CHEN</span></div>
-                        <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-6 py-2 rounded-full font-bold">➕ פרויקט חדש</button>
+                    <header className="flex justify-between items-center py-6 glass sticky top-0 z-30 px-6 rounded-b-xl border-b border-white/5">
+                        <img src="https://i.imgur.com/WfVp07m.jpg" alt="Aquapoolco Logo" className="h-12 md:h-16" />
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-6 py-2 rounded-full font-bold">➕ פרויקט חדש</button>
+                            <button onClick={()=>setIsLoggedIn(false)} className="text-slate-500 font-bold">יציאה</button>
+                        </div>
                     </header>
 
-                    <div className="grid grid-cols-1 gap-8 max-w-4xl mx-auto">
-                        {projects.map(proj => (
-                            <div key={proj.id} id={`report-${proj.id}`} className="glass rounded-[2rem] p-8 relative border-r-8 border-blue-500">
-                                <div className="flex justify-between items-start mb-6">
-                                    <div>
-                                        <h3 className="text-3xl font-black text-white">{proj.name}</h3>
-                                        <p className="text-blue-400 font-bold">📍 {proj.address} | 👷 {proj.team}</p>
-                                    </div>
-                                    <button onClick={() => exportPDF(proj.id)} className="no-print bg-white/10 p-3 rounded-xl hover:bg-blue-600 transition text-sm font-bold">📥 הורד PDF</button>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    <div className="space-y-3">
-                                        <h4 className="text-slate-400 font-bold uppercase text-xs mb-4">צ'ק ליסט פיקוח מחלקת טיח:</h4>
-                                        {[
-                                            {id: 'prep', label: 'הכנת תשתית וניקיון'},
-                                            {id: 'sealing1', label: 'איטום ראשוני'},
-                                            {id: 'plaster', label: 'שכבת טיח מיישר'},
-                                            {id: 'sealing2', label: 'איטום סופי'},
-                                            {id: 'flood', label: 'בדיקת הצפה'}
-                                        ].map(step => (
-                                            <div key={step.id} onClick={() => toggleStep(proj.id, step.id)} className="flex items-center gap-4 p-3 bg-white/5 rounded-xl cursor-pointer">
-                                                <div className={`w-6 h-6 rounded border-2 flex items-center justify-center ${proj.checklist?.[step.id] ? 'bg-blue-500 border-blue-500' : 'border-slate-600'}`}>
-                                                    {proj.checklist?.[step.id] && "✓"}
-                                                </div>
-                                                <span className={proj.checklist?.[step.id] ? "text-slate-500 line-through" : "text-white font-bold"}>{step.label}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    
-                                    <div className="flex flex-col">
-                                        <h4 className="text-slate-400 font-bold uppercase text-xs mb-4">חתימת מנהל עבודה בסיום:</h4>
-                                        <canvas ref={canvasRef} className="signature-pad w-full h-40 bg-white" />
-                                        <button onClick={() => sigPad.current.clear()} className="no-print mt-2 text-xs text-slate-500 underline">נקה חתימה</button>
-                                    </div>
-                                </div>
-                                <div className="mt-8 pt-6 border-t border-white/10 text-center">
-                                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">Aquapoolco Chen Ltd - Official Service Report</p>
-                                </div>
+                    <main className="max-w-7xl mx-auto p-6 mt-8">
+                        <div className="flex justify-between items-end mb-10 px-2">
+                            <h2 className="text-4xl font-extrabold text-white">לוח בקרה - מחלקת טיח</h2>
+                            <div className="text-left">
+                                <div className="text-slate-500 text-xs font-bold uppercase mb-1">פרויקטים פעילים</div>
+                                <div className="text-3xl font-black text-blue-500">{projects.length}</div>
                             </div>
-                        ))}
-                    </div>
-
-                    {showAddModal && (
-                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={(e) => {
-                                e.preventDefault();
-                                db.collection("projects").add({
-                                    name: e.target.name.value,
-                                    address: e.target.address.value,
-                                    team: e.target.team.value,
-                                    checklist: { prep: false, sealing1: false, plaster: false, sealing2: false, flood: false },
-                                    createdAt: firebase.firestore.Timestamp.now()
-                                });
-                                setShowAddModal(false);
-                            }} className="glass p-10 rounded-[2rem] w-full max-w-lg space-y-4">
-                                <h2 className="text-2xl font-black">פרויקט חדש</h2>
-                                <input name="name" placeholder="שם הלקוח" className="w-full p-4 bg-slate-800 rounded-xl" required />
-                                <input name="address" placeholder="כתובת" className="w-full p-4 bg-slate-800 rounded-xl" required />
-                                <input name="team" placeholder="שם הצוות" className="w-full p-4 bg-slate-800 rounded-xl" required />
-                                <button type="submit" className="w-full bg-blue-600 py-4 rounded-xl font-bold">שמור</button>
-                                <button onClick={() => setShowAddModal(false)} type="button" className="w-full text-slate-400">ביטול</button>
-                            </form>
                         </div>
-                    )}
-                </div>
-            );
-        }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-4xl mx-auto">
+                            {projects.map(proj => (
+                                <div key={proj.id} id={`report-${proj.id}`} className="glass rounded-[2rem] p-8 relative border-r-8 border-blue-500 transition-all hover:border-blue-400">
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div>
+                                            <h3 className="text-3xl font-black text-white">{proj.name}</h3>
+                                            <p className="text-blue-400 font-bold">📍 {proj.address} | 👷 {proj.team}</p>
+                                        </div>
+                                        <div className="flex flex-col gap-2 no-print">
+                                            <button onClick={() => exportPDF(proj.id)} className="bg-white/10 p-3 rounded-xl hover:bg-blue-600 text-sm font-bold">📥 הורד PDF</button>
+                                            <div className="text-left">
+                                                <div className="text-[10px] text-slate-500 font-bold uppercase">זמן ריצה</div>
+                                                <div className="text-blue-500 font-black text-sm">{calculateDays(proj.createdAt)}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+                                        <div className="space-y-3">
+                                            <h4 className="text-slate-400 font-bold uppercase text-xs mb-4">צ'ק ליסט פיקוח מחלקת טיח:</h4>
+                                            {[
+                                                {id: 'prep', label: 'הכנת תשתית וניקיון'},
+                                                {id: 'sealing1', label: 'איטום ראשוני'},
+                                                {id: 'plaster', label: 'שכבת טיח מיישר'},
+                                                {id: 'sealing2', label: 'איטום סופי'},
+                                                {id: 'flood', label: 'בדיקת הצפה'}
+                                            ].map(step => (
+                                                <div key={step.id} onClick={() => toggleStep(proj.id, step.id)} className="flex items-center gap-4 p-3 bg-white/5 rounded-xl cursor-pointer">
+                                                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center ${proj.checklist?.[step.id] ? 'bg-blue-500 border-blue-500' : 'border-slate-600'}`}>
+                                                        {proj.checklist?.[step.id] && "✓"}
+                                                    </div>
+                                                    <span className={proj.checklist?.[step.id] ? "text-slate-500 line-through" : "text-white font-bold"}>{step.label}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        
+                                        <div className="flex flex-col bg-slate-900 rounded-2xl p-6 border border-white/5">
+                                            <h4 className="text-slate-400 font-bold uppercase text-xs mb-4">ניהול מסמכים ותמונות:</h4>
+                                            <button className="w-full bg-white/5 py-3 rounded-xl mb-3 text-sm font-bold text-slate-300">🖼️ גלריית תמונות שטח</button>
+                                            <button className="w-full bg-white/5 py-3 rounded-xl mb-3 text-sm font-bold text-slate-300">📝 הערות מפקח</button>
+                                            <div className="mt-6 border-t border-white/10 pt-4 flex flex-col gap-2">
+                                                <label className="text-xs text-slate-500">חתימת צוות בסיום:</label>
+                                                <input type="file" accept="image/*" capture="user" onChange={(e) => {
+                                                    const file = e.target.files[0];
+                                                    const ref = storage.ref().child(`signatures/${proj.id}_sig.jpg`);
+                                                    ref.put(file).then(snapshot => {
+                                                        snapshot.ref.getDownloadURL().then(url => {
+                                                            db.collection("projects").doc(
