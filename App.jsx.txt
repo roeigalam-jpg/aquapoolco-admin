@@ -1,0 +1,113 @@
+import React, { useState } from 'react';
+import { Plus, Upload, FileText, MapPin, HardHat, CheckCircle, X, Loader2, LogIn, Database } from 'lucide-react';
+
+export default function App() {
+  const [showModal, setShowModal] = useState(false);
+  const [firebaseStatus, setFirebaseStatus] = useState('connected'); // connected, error, loading
+  const [projects, setProjects] = useState([
+    { id: 1, name: 'וילה משפחת לוי - קיסריה', address: 'רחוב האורנים 12', team: 'צוות א - אלכס', status: 'בביצוע' },
+    { id: 2, name: 'בריכת שחייה אולימפית - כפר סבא', address: 'מרכז ספורט עירוני', team: 'צוות ב - סעיד', status: 'חדש' }
+  ]);
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 font-sans" dir="rtl">
+      {/* כותרת עליונה */}
+      <header className="max-w-7xl mx-auto flex justify-between items-center mb-8 bg-white p-6 rounded-3xl shadow-lg border-b-4 border-blue-600">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-blue-50 rounded-2xl">
+            <HardHat size={32} className="text-blue-600" />
+          </div>
+          <div>
+            <h1 className="text-4xl font-black text-blue-900 italic tracking-tighter">אקוופולקו חן בע"מ</h1>
+            <p className="text-slate-500 font-bold mt-1">מערכת ניהול מחלקת טיח ובריכות שחייה</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* סטטוס חיבור ל-Firebase */}
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm ${
+            firebaseStatus === 'connected' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+          }`}>
+            <Database size={16} />
+            {firebaseStatus === 'connected' ? 'מחובר לענן' : 'שגיאת חיבור'}
+          </div>
+          <button 
+            onClick={() => setShowModal(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl flex items-center gap-2 font-black shadow-lg transition-all transform active:scale-95 shadow-blue-500/30"
+          >
+            <Plus size={24} /> הקמת פרויקט
+          </button>
+        </div>
+      </header>
+
+      {/* אזור פרויקטים בביצוע */}
+      <section className="max-w-7xl mx-auto mb-12">
+        <h2 className="text-2xl font-black text-slate-900 mb-6 pr-2 border-r-4 border-slate-300">פרויקטים פעילים</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {projects.map(proj => (
+            <div key={proj.id} className="bg-white rounded-3xl p-7 shadow-sm border border-slate-100 hover:shadow-2xl transition-all group relative overflow-hidden">
+              {/* סרט סימון */}
+              <div className={`absolute -left-12 top-4 -rotate-45 text-white font-black text-xs px-12 py-1 shadow-md ${
+                proj.status === 'בביצוע' ? 'bg-blue-500' : 'bg-green-500'
+              }`}>
+                {proj.status}
+              </div>
+
+              <div className="flex justify-between items-start mb-6 pt-4">
+                <h3 className="text-2xl font-black text-slate-800 group-hover:text-blue-600 transition-colors leading-tight pr-4">{proj.name}</h3>
+              </div>
+              
+              <div className="space-y-4 mb-8 bg-slate-50 p-5 rounded-2xl">
+                <div className="flex items-center gap-3 text-slate-600 font-bold">
+                  <MapPin size={20} className="text-blue-500" /> {proj.address}
+                </div>
+                <div className="flex items-center gap-3 text-slate-600 font-bold">
+                  <HardHat size={20} className="text-blue-500" /> {proj.team}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <button className="flex items-center justify-center gap-2 bg-blue-50 text-blue-700 py-4 rounded-2xl font-black hover:bg-blue-100 transition">
+                  <FileText size={20} /> תוכנית עבודה
+                </button>
+                <button className="flex items-center justify-center gap-2 bg-slate-100 text-slate-700 py-4 rounded-2xl font-black hover:bg-slate-200 transition">
+                  <FileText size={20} /> כתב כמויות
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* טופס הוספת פרויקט */}
+      {showModal && (
+        <div className="fixed inset-0 bg-blue-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[40px] w-full max-w-xl p-10 shadow-2xl relative">
+            <button onClick={() => setShowModal(false)} className="absolute left-6 top-6 text-slate-400 hover:text-slate-900">
+              <X size={32} />
+            </button>
+            <div className="flex items-center gap-4 mb-8 text-right">
+              <div className="p-3 bg-blue-100 rounded-2xl">
+                <Plus size={32} className="text-blue-600" />
+              </div>
+              <h2 className="text-3xl font-black text-slate-900">הקמת פרויקט חדש</h2>
+            </div>
+            <div className="space-y-5 text-right">
+              <div>
+                <label className="block text-slate-700 font-black mb-2">שם הפרויקט</label>
+                <input type="text" placeholder="לדוגמה: קאנטרי קלאב נתניה" className="w-full p-5 bg-slate-100 border-none rounded-2xl focus:ring-4 focus:ring-blue-500/20 outline-none font-bold text-lg" />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-black mb-2">כתובת</label>
+                <input type="text" placeholder="עיר, רחוב ומספר" className="w-full p-5 bg-slate-100 border-none rounded-2xl focus:ring-4 focus:ring-blue-500/20 outline-none font-bold text-lg" />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-black mb-2">צוות אחראי</label>
+                <select className="w-full p-5 bg-slate-100 border-none rounded-2xl focus:ring-4 focus:ring-blue-500/20 outline-none font-bold text-lg appearance-none">
+                  <option>בחר צוות מהרשימה</option>
+                  <option>צוות א' - אלכס</option>
+                  <option>צוות ב' - סעיד</option>
+                  <option>צוות ג' - מוחמד</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4 pt-4">
+                <div className="border-4 border-dashed border-slate-100
