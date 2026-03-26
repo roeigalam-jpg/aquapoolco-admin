@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aquapoolco Elite Management</title>
+    <title>Aquapoolco Elite ERP</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -17,7 +17,7 @@
         .table-container { overflow-x: auto; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.1); }
         table { width: 100%; border-collapse: separate; border-spacing: 0; }
         th { background: #1e293b; padding: 1rem; text-align: right; font-weight: 800; color: #94a3b8; font-size: 0.875rem; border-bottom: 2px solid #334155; white-space: nowrap; }
-        td { padding: 0.5rem; border-bottom: 1px solid #334155; white-space: nowrap; }
+        td { padding: 1rem 0.5rem; border-bottom: 1px solid #334155; white-space: nowrap; }
         tr:hover td { background: rgba(255,255,255,0.02); }
         .status-cell { cursor: pointer; border-radius: 0.5rem; text-align: center; font-weight: bold; padding: 0.75rem 0.5rem; transition: all 0.2s; border: 1px solid transparent; }
         .status-cell:hover { filter: brightness(1.1); border-color: rgba(255,255,255,0.2); }
@@ -26,7 +26,7 @@
         .status-1 { background-color: #f59e0b; color: #fff; } 
         .status-2 { background-color: #ef4444; color: #fff; } 
         .status-3 { background-color: #10b981; color: #fff; } 
-        .project-closed { opacity: 0.6; filter: grayscale(100%); }
+        .project-closed { opacity: 0.5; }
 
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
@@ -51,8 +51,8 @@
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // המערכת תחפש את הקובץ 'logo.jpg' באותה תיקייה של האתר
-        const LOGO_URL = "./logo.jpg";
+        // קישור ישיר וחסין ללוגו שלך מתוך הגיטהאב
+        const LOGO_URL = "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg";
 
         function App() {
             const [currentUser, setCurrentUser] = useState(null);
@@ -60,10 +60,13 @@
             const [projects, setProjects] = useState([]);
             const [stages, setStages] = useState([]);
             const [users, setUsers] = useState([]);
+            const [inventory, setInventory] = useState([]);
             const [activeTab, setActiveTab] = useState("board");
+            const [searchTerm, setSearchTerm] = useState("");
             
             const [showAddProject, setShowAddProject] = useState(false);
             const [showAddUser, setShowAddUser] = useState(false);
+            const [showAddInventory, setShowAddInventory] = useState(false);
             const [statusModal, setStatusModal] = useState(null);
 
             useEffect(() => {
@@ -76,46 +79,60 @@
                 db.collection("users").onSnapshot(snapshot => {
                     setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 });
+                db.collection("inventory").onSnapshot(snapshot => {
+                    setInventory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
             }, []);
 
-            const handleLogin = async () => {
+            const handleLogin = () => {
                 if (pass === "2026") {
-                    setCurrentUser({ name: "מורן גלם (מאסטר)", role: "admin" });
+                    setCurrentUser({ name: "רועי (מנכ''ל)", role: "admin" });
                     return;
                 }
                 const userDoc = users.find(u => u.pin === pass);
                 if (userDoc) {
                     setCurrentUser(userDoc);
                 } else {
-                    alert("סיסמה שגויה או משתמש לא קיים");
+                    alert("שגיאה בפרטי ההתחברות");
                 }
             };
 
             const toggleProjectClose = (proj) => {
-                const isClosed = proj.isClosed || false;
-                if(window.confirm(isClosed ? "לפתוח את הפרויקט מחדש?" : "לסגור את הפרויקט ולהעביר לארכיון?")) {
-                    db.collection("projects").doc(proj.id).update({ isClosed: !isClosed });
-                }
+                db.collection("projects").doc(proj.id).update({ isClosed: !proj.isClosed });
             };
 
-            const sendEmail = (proj) => {
-                const subject = encodeURIComponent(`עדכון סטטוס פרויקט: ${proj.name}`);
-                const body = encodeURIComponent(`שלום,\n\nלהלן עדכון סטטוס לפרויקט ${proj.name} בכתובת ${proj.address}.\nצוות מבצע: ${proj.team}\n\nבברכה,\nמערכת ניהול אקוופולקו חן`);
-                window.location.href = `mailto:?subject=${subject}&body=${body}`;
+            const updateFinance = (projId, field, val) => {
+                db.collection("projects").doc(projId).update({ [field]: Number(val) });
             };
+
+            const exportCSV = () => {
+                let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+                csvContent += "שם פרויקט,כתובת,צוות,סטטוס,תקציב,שולם\n";
+                projects.forEach(p => {
+                    csvContent += `${p.name},${p.address},${p.team},${p.isClosed ? 'סגור' : 'פעיל'},${p.budget||0},${p.paid||0}\n`;
+                });
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "aquapoolco_report.csv");
+                document.body.appendChild(link);
+                link.click();
+            };
+
+            const filteredProjects = projects.filter(p => p.name.includes(searchTerm) || p.address.includes(searchTerm));
 
             if (!currentUser) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="glass p-12 rounded-[2rem] w-full max-w-sm text-center border-t-4 border-blue-500 shadow-2xl relative">
-                            <div className="bg-white p-2 rounded-xl inline-block mb-6 shadow-lg">
-                                <img src={LOGO_URL} alt="Aquapoolco Logo" className="h-20 object-contain" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
-                                <div style={{display:'none'}} className="text-black font-black text-xl px-4 py-2">AQUAPOOLCO</div>
+                        <div className="glass p-12 rounded-[2rem] w-full max-w-sm text-center border-t-4 border-blue-500 shadow-2xl">
+                            <div className="flex justify-center mb-6">
+                                <img src={LOGO_URL} alt="Logo" className="h-20 object-contain rounded-xl bg-white p-2 shadow-lg" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
+                                <div style={{display:'none'}} className="text-white font-black text-3xl italic tracking-tighter">AQUAPOOLCO</div>
                             </div>
-                            <h1 className="text-2xl font-black mb-1 text-white tracking-wide">פורטל מנהלים וצוותים</h1>
-                            <p className="text-slate-400 font-bold mb-8 uppercase text-xs tracking-widest">מחלקת עבודות גמר</p>
-                            <input type="password" placeholder="הזן קוד גישה או סיסמה" onChange={e=>setPass(e.target.value)} className="w-full p-4 bg-slate-900 rounded-xl mb-6 text-center text-white outline-none border border-slate-700 focus:border-blue-500 font-bold" />
-                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black transition-all shadow-lg">כניסה למערכת</button>
+                            <h1 className="text-2xl font-black mb-1 text-white">מערכת ניהול ERP</h1>
+                            <p className="text-blue-500 font-bold mb-8 uppercase text-xs tracking-widest">מחלקת עבודות גמר</p>
+                            <input type="password" placeholder="הזן קוד גישה למערכת" onChange={e=>setPass(e.target.value)} className="w-full p-4 bg-slate-900 rounded-xl mb-6 text-center text-white outline-none border border-slate-700 focus:border-blue-500 font-bold" />
+                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black transition-all shadow-lg">התחברות מאובטחת</button>
                         </div>
                     </div>
                 );
@@ -123,53 +140,62 @@
 
             return (
                 <div className="min-h-screen flex flex-col">
-                    <header className="glass px-6 py-4 flex justify-between items-center sticky top-0 z-30">
-                        <div className="flex items-center gap-6">
+                    <header className="glass px-6 py-4 flex justify-between items-center sticky top-0 z-30 overflow-x-auto border-b border-white/5">
+                        <div className="flex items-center gap-6 min-w-max">
                             <div className="flex items-center gap-4 border-l border-white/10 pl-6">
                                 <img src={LOGO_URL} alt="Logo" className="h-10 bg-white rounded p-1 object-contain" onError={(e) => e.target.style.display='none'} />
-                                <div className="hidden sm:block">
+                                <div>
                                     <div className="text-lg font-black text-white leading-tight">אקוופולקו חן בע"מ</div>
-                                    <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">שלום, {currentUser.name} ({currentUser.role === 'admin' ? 'מנהל' : 'צוות'})</div>
+                                    <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">מחובר כ: {currentUser.name}</div>
                                 </div>
                             </div>
-                            <nav className="hidden md:flex gap-2">
-                                <button onClick={() => setActiveTab("board")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'board' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>לוח פרויקטים</button>
+                            <nav className="flex gap-2">
+                                <button onClick={() => setActiveTab("board")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'board' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📊 לוח פרויקטים</button>
                                 {currentUser.role === 'admin' && (
                                     <>
-                                        <button onClick={() => setActiveTab("settings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>⚙️ שלבי עבודה</button>
-                                        <button onClick={() => setActiveTab("users")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'users' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>👥 משתמשים והרשאות</button>
+                                        <button onClick={() => setActiveTab("inventory")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'inventory' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📦 ניהול מלאי</button>
+                                        <button onClick={() => setActiveTab("finance")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'finance' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>💰 פיננסי וגבייה</button>
+                                        <button onClick={() => setActiveTab("users")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'users' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>👥 צוותים</button>
+                                        <button onClick={() => setActiveTab("settings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>⚙️ הגדרות</button>
                                     </>
                                 )}
                             </nav>
                         </div>
-                        <div className="flex gap-4 items-center">
+                        <div className="flex gap-4 items-center min-w-max pr-4">
                             {currentUser.role === 'admin' && <button onClick={() => setShowAddProject(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-bold shadow-lg transition-all text-sm">➕ פרויקט חדש</button>}
-                            <button onClick={() => setCurrentUser(null)} className="text-slate-500 hover:text-white font-bold text-sm hidden md:block transition-colors">התנתק</button>
+                            <button onClick={() => setCurrentUser(null)} className="text-slate-500 hover:text-white font-bold text-sm transition-colors">התנתק</button>
                         </div>
                     </header>
 
                     <main className="flex-1 p-4 md:p-8">
+                        
+                        {/* טאב: לוח פרויקטים */}
                         {activeTab === "board" && (
-                            <div className="animate-fade-in max-w-[1500px] mx-auto">
+                            <div className="animate-fade-in max-w-[1600px] mx-auto">
+                                <div className="flex justify-between items-end mb-6 gap-4 flex-wrap">
+                                    <input type="text" placeholder="🔍 חפש פרויקט או עיר..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="p-3 rounded-xl bg-slate-900 border border-slate-700 text-white outline-none focus:border-blue-500 w-full md:w-80 font-bold" />
+                                    {currentUser.role === 'admin' && <button onClick={exportCSV} className="bg-white/10 hover:bg-white/20 px-6 py-3 rounded-xl text-sm font-bold transition flex items-center gap-2">📥 ייצא לאקסל (CSV)</button>}
+                                </div>
+
                                 <div className="table-container bg-[#1e293b]/50">
                                     <table className="w-full text-right">
                                         <thead>
                                             <tr>
                                                 <th className="w-2"></th>
                                                 <th className="min-w-[200px]">שם פרויקט / לקוח</th>
-                                                <th className="min-w-[120px]">צוות</th>
+                                                <th className="min-w-[120px]">צוות מבצע</th>
                                                 {stages.map(s => <th key={s.id} className="text-center">{s.label}</th>)}
                                                 <th>התקדמות</th>
-                                                <th className="text-center">פעולות ניהול</th>
+                                                <th className="text-center">פעולות</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {projects.map(proj => {
+                                            {filteredProjects.map(proj => {
                                                 const doneCount = stages.filter(s => proj.statuses && proj.statuses[s.id] === 3).length;
                                                 const progress = stages.length ? Math.round((doneCount / stages.length) * 100) : 0;
                                                 
                                                 return (
-                                                    <tr key={proj.id} className={`group transition-colors ${proj.isClosed ? 'project-closed bg-black/20' : ''}`}>
+                                                    <tr key={proj.id} className={`group transition-colors ${proj.isClosed ? 'project-closed bg-black/30' : ''}`}>
                                                         <td className={`border-r-4 ${proj.isClosed ? 'border-slate-600' : 'border-blue-500'}`}></td>
                                                         <td>
                                                             <div className="font-black text-white text-lg flex items-center gap-2">
@@ -202,9 +228,8 @@
                                                         <td className="text-center">
                                                             {currentUser.role === 'admin' && (
                                                                 <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <button onClick={() => sendEmail(proj)} title="שלח במייל" className="p-2 bg-slate-800 hover:bg-blue-600 rounded-lg transition">✉️</button>
-                                                                    <button onClick={() => window.print()} title="ייצא PDF/הדפס" className="p-2 bg-slate-800 hover:bg-purple-600 rounded-lg transition">📄</button>
-                                                                    <button onClick={() => toggleProjectClose(proj)} title={proj.isClosed ? "פתיחה מחדש" : "סגור פרויקט"} className="p-2 bg-slate-800 hover:bg-amber-600 rounded-lg transition">{proj.isClosed ? "🔓" : "🔒"}</button>
+                                                                    <button onClick={() => toggleProjectClose(proj)} title={proj.isClosed ? "פתיחה מחדש" : "העבר לארכיון"} className="p-2 bg-slate-800 hover:bg-amber-600 rounded-lg transition">{proj.isClosed ? "🔓" : "📁"}</button>
+                                                                    <button onClick={() => {if(window.confirm('למחוק פרויקט?')) db.collection("projects").doc(proj.id).delete()}} className="p-2 bg-slate-800 hover:bg-red-600 rounded-lg transition">🗑️</button>
                                                                 </div>
                                                             )}
                                                         </td>
@@ -217,13 +242,74 @@
                             </div>
                         )}
 
+                        {/* טאב: מלאי */}
+                        {activeTab === "inventory" && currentUser.role === 'admin' && (
+                            <div className="max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-amber-500">
+                                <div className="flex justify-between items-center mb-8">
+                                    <h2 className="text-3xl font-black text-white">📦 ניהול מלאי חומרים</h2>
+                                    <button onClick={() => setShowAddInventory(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-6 py-2 rounded-xl font-bold transition">➕ פריט חדש</button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {inventory.map(item => (
+                                        <div key={item.id} className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 flex flex-col justify-between">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-white mb-1">{item.name}</h3>
+                                                <p className="text-sm text-slate-400 mb-4">{item.category}</p>
+                                            </div>
+                                            <div className="flex items-center justify-between bg-slate-800 p-3 rounded-xl">
+                                                <button onClick={() => db.collection("inventory").doc(item.id).update({ quantity: Math.max(0, item.quantity - 1) })} className="w-10 h-10 bg-slate-700 rounded-lg font-black hover:bg-red-500 transition">-</button>
+                                                <span className={`text-2xl font-black ${item.quantity < 5 ? 'text-red-500' : 'text-white'}`}>{item.quantity}</span>
+                                                <button onClick={() => db.collection("inventory").doc(item.id).update({ quantity: item.quantity + 1 })} className="w-10 h-10 bg-slate-700 rounded-lg font-black hover:bg-green-500 transition">+</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* טאב: פיננסי */}
+                        {activeTab === "finance" && currentUser.role === 'admin' && (
+                            <div className="max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-emerald-500">
+                                <h2 className="text-3xl font-black text-white mb-2">💰 מעקב תשלומים וגבייה</h2>
+                                <p className="text-slate-400 mb-8">עדכון תקציב וגבייה לכל פרויקט פעיל</p>
+                                
+                                <div className="space-y-4">
+                                    {projects.filter(p => !p.isClosed).map(proj => {
+                                        const budget = proj.budget || 0;
+                                        const paid = proj.paid || 0;
+                                        const debt = budget - paid;
+                                        return (
+                                            <div key={proj.id} className="flex flex-col md:flex-row gap-4 items-center bg-slate-900/50 p-4 rounded-xl border border-white/5">
+                                                <div className="flex-1">
+                                                    <div className="font-bold text-white text-lg">{proj.name}</div>
+                                                    <div className="text-xs text-slate-400">{proj.address}</div>
+                                                </div>
+                                                <div className="flex gap-4">
+                                                    <div>
+                                                        <label className="text-[10px] text-slate-500 font-bold uppercase">תקציב כולל (₪)</label>
+                                                        <input type="number" value={budget} onChange={(e) => updateFinance(proj.id, 'budget', e.target.value)} className="w-24 p-2 bg-slate-800 text-white rounded outline-none font-bold" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] text-slate-500 font-bold uppercase">שולם (₪)</label>
+                                                        <input type="number" value={paid} onChange={(e) => updateFinance(proj.id, 'paid', e.target.value)} className="w-24 p-2 bg-slate-800 text-emerald-400 rounded outline-none font-bold" />
+                                                    </div>
+                                                    <div className="bg-slate-800 p-2 rounded w-24 flex flex-col justify-center">
+                                                        <label className="text-[10px] text-slate-500 font-bold uppercase">יתרה לגבייה</label>
+                                                        <span className={`font-black ${debt > 0 ? 'text-red-400' : 'text-slate-300'}`}>₪{debt.toLocaleString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* טאב: משתמשים */}
                         {activeTab === "users" && currentUser.role === 'admin' && (
                             <div className="max-w-4xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-purple-500">
                                 <div className="flex justify-between items-center mb-8">
-                                    <div>
-                                        <h2 className="text-3xl font-black text-white">ניהול משתמשים והרשאות</h2>
-                                        <p className="text-slate-400">הוסף עובדים ומנהלים למערכת</p>
-                                    </div>
+                                    <h2 className="text-3xl font-black text-white">👥 משתמשים והרשאות</h2>
                                     <button onClick={() => setShowAddUser(true)} className="bg-purple-600 text-white px-6 py-2 rounded-xl font-bold">➕ עובד חדש</button>
                                 </div>
                                 <div className="space-y-3">
@@ -240,12 +326,33 @@
                             </div>
                         )}
 
+                        {/* טאב: הגדרות שלבים */}
+                        {activeTab === "settings" && currentUser.role === 'admin' && (
+                            <div className="max-w-3xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-slate-500">
+                                <h2 className="text-3xl font-black text-white mb-6">⚙️ עריכת עמודות ולחצנים בלוח</h2>
+                                <div className="space-y-4 mb-8">
+                                    {stages.map((stage, index) => (
+                                        <div key={stage.id} className="flex items-center gap-4 bg-slate-800/50 p-4 rounded-xl border border-white/5">
+                                            <div className="text-slate-500 font-bold w-6">{index + 1}.</div>
+                                            <input value={stage.label} onChange={(e) => { const n=[...stages]; n[index].label=e.target.value; setStages(n); }} className="flex-1 bg-slate-900 text-white px-4 py-2 rounded-lg outline-none border border-slate-700 focus:border-blue-500 font-bold" />
+                                            <button onClick={() => setStages(stages.filter(s => s.id !== stage.id))} className="text-red-400 font-bold px-3 py-2 bg-red-400/10 rounded-lg">מחק</button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-4">
+                                    <button onClick={() => setStages([...stages, { id: 's'+Date.now(), label: 'שלב חדש' }])} className="flex-1 bg-slate-800 text-white py-4 rounded-xl font-bold border border-white/10">➕ הוסף שלב</button>
+                                    <button onClick={() => { db.collection("settings").doc("general").update({ stages }); alert("נשמר!"); }} className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black shadow-lg">💾 שמור שלבים</button>
+                                </div>
+                            </div>
+                        )}
+
                     </main>
 
-                    {/* חלון סטטוס */}
+                    {/* מודאלים */}
                     {statusModal && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => setStatusModal(null)}>
-                            <div className="glass p-8 rounded-[2rem] w-full max-w-sm" onClick={e=>e.stopPropagation()}>
+                            <div className="glass p-8 rounded-[2rem] w-full max-w-sm relative" onClick={e=>e.stopPropagation()}>
+                                <img src={LOGO_URL} className="h-6 absolute top-6 left-6 opacity-30 bg-white rounded p-1" />
                                 <h3 className="text-center text-slate-400 text-sm font-bold">{statusModal.projName}</h3>
                                 <h2 className="text-center text-2xl font-black text-white mb-6 border-b border-white/10 pb-4">{statusModal.stageLabel}</h2>
                                 <div className="space-y-3">
@@ -265,26 +372,49 @@
                         </div>
                     )}
 
-                    {/* הוספת משתמש */}
+                    {showAddInventory && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={e => { e.preventDefault(); db.collection("inventory").add({ name: e.target.n.value, category: e.target.c.value, quantity: Number(e.target.q.value) }); setShowAddInventory(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
+                                <h2 className="text-white text-2xl font-black">הוספת פריט למלאי</h2>
+                                <input name="n" placeholder="שם הפריט" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
+                                <input name="c" placeholder="קטגוריה" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
+                                <input name="q" type="number" placeholder="כמות" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
+                                <button type="submit" className="w-full bg-amber-600 text-white py-4 rounded-xl font-bold">שמור</button>
+                                <button type="button" onClick={()=>setShowAddInventory(false)} className="w-full text-slate-400 font-bold">ביטול</button>
+                            </form>
+                        </div>
+                    )}
+
                     {showAddUser && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={e => {
-                                e.preventDefault();
-                                db.collection("users").add({ name: e.target.n.value, pin: e.target.p.value, role: e.target.r.value });
-                                setShowAddUser(false);
-                            }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
+                            <form onSubmit={e => { e.preventDefault(); db.collection("users").add({ name: e.target.n.value, pin: e.target.p.value, role: e.target.r.value }); setShowAddUser(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
                                 <h2 className="text-white text-2xl font-black">משתמש חדש</h2>
                                 <input name="n" placeholder="שם העובד" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
                                 <input name="p" placeholder="קוד גישה (PIN)" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
                                 <select name="r" className="w-full p-4 bg-slate-900 text-white rounded-xl">
-                                    <option value="worker">צוות שטח (יכול רק לעדכן סטטוס)</option>
-                                    <option value="admin">מנהל מערכת (גישה מלאה)</option>
+                                    <option value="worker">צוות שטח</option>
+                                    <option value="admin">מנהל מערכת</option>
                                 </select>
-                                <button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold">הוסף משתמש</button>
+                                <button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold">הוסף</button>
                                 <button type="button" onClick={()=>setShowAddUser(false)} className="w-full text-slate-400 font-bold">ביטול</button>
                             </form>
                         </div>
                     )}
+
+                    {showAddProject && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={e => { e.preventDefault(); db.collection("projects").add({ name: e.target.n.value, address: e.target.a.value, team: e.target.t.value, statuses: {}, isClosed: false, createdAt: firebase.firestore.Timestamp.now() }).then(() => setShowAddProject(false)); }} className="glass p-10 rounded-[2rem] w-full max-w-md space-y-5 border-t-4 border-blue-500 shadow-2xl relative">
+                                <img src={LOGO_URL} className="h-8 mx-auto bg-white rounded p-1 mb-2" />
+                                <h2 className="text-white text-center text-2xl font-black mb-6">פרויקט חדש</h2>
+                                <input name="n" placeholder="שם הלקוח / הפרויקט" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
+                                <input name="a" placeholder="כתובת האתר" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
+                                <input name="t" placeholder="צוות (למשל: צוות א')" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
+                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black">פתח פרויקט</button>
+                                <button type="button" onClick={()=>setShowAddProject(false)} className="w-full text-slate-400 font-bold hover:text-white">ביטול</button>
+                            </form>
+                        </div>
+                    )}
+
                 </div>
             );
         }
