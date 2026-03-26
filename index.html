@@ -13,12 +13,6 @@
     <link rel="icon" type="image/jpeg" href="https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg">
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg">
     
-    <script>
-        const manifest = { "name": "Aquapoolco ERP", "short_name": "אקוופולקו", "display": "standalone", "start_url": ".", "theme_color": "#0f172a", "background_color": "#0f172a", "icons": [{"src": "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg", "sizes": "512x512", "type": "image/jpeg", "purpose": "any maskable"}] };
-        const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-        document.write('<link rel="manifest" href="' + URL.createObjectURL(blob) + '">');
-    </script>
-
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -29,25 +23,21 @@
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
     
     <style>
-        body { background-color: #0f172a; color: white; overflow-x: hidden; -webkit-tap-highlight-color: transparent; transition: background 0.3s; }
+        body { background-color: #0f172a; color: white; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
         .glass { background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
         .table-container { overflow-x: auto; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.1); }
         table { width: 100%; border-collapse: separate; border-spacing: 0; }
         th { background: #1e293b; padding: 1rem; text-align: right; font-weight: 800; color: #94a3b8; font-size: 0.875rem; border-bottom: 2px solid #334155; white-space: nowrap; }
         td { padding: 1rem 0.5rem; border-bottom: 1px solid #334155; white-space: nowrap; }
-        tr:hover td { background: rgba(255,255,255,0.02); }
-        
-        .status-cell { cursor: pointer; border-radius: 0.5rem; text-align: center; font-weight: bold; padding: 0.75rem 0.5rem; transition: all 0.2s; border: 1px solid transparent; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 3rem; }
+        .status-cell { cursor: pointer; border-radius: 0.5rem; text-align: center; font-weight: bold; padding: 0.75rem 0.5rem; display: flex; flex-direction: column; justify-content: center; min-height: 3rem; }
         .status-0 { background-color: #334155; color: #cbd5e1; } 
         .status-1 { background-color: #f59e0b; color: #fff; } 
         .status-2 { background-color: #ef4444; color: #fff; } 
         .status-3 { background-color: #10b981; color: #fff; } 
-
-        .loader { border: 4px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; display: inline-block; }
+        .loader { border: 4px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
         header { z-index: 100 !important; position: sticky; top: 0; }
-        nav button { position: relative; z-index: 110 !important; cursor: pointer; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body class="antialiased">
@@ -67,70 +57,84 @@
 
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
-
         const LOGO_URL = "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg";
 
         function App() {
             const [currentUser, setCurrentUser] = useState(null);
-            const [loginUsername, setLoginUsername] = useState("");
-            const [loginPassword, setLoginPassword] = useState("");
-            
             const [activeTab, setActiveTab] = useState("board");
             const [projects, setProjects] = useState([]);
             const [users, setUsers] = useState([]);
             const [inventory, setInventory] = useState([]);
             const [attendance, setAttendance] = useState([]);
-            
             const [stages, setStages] = useState([]);
             const [statusLabels, setStatusLabels] = useState({ 0: "טרם התחיל", 1: "בתהליך", 2: "מעוכב ⚠️", 3: "בוצע ✓" });
-            
-            const [settings, setSettings] = useState({ 
-                portalName: "אקוופולקו חן בע\"מ", 
-                mainColor: "#3b82f6", 
-                headerTextColor: "#ffffff",
-                cardBg: "#1e293b",
-                appFont: "system-ui"
-            });
+            const [settings, setSettings] = useState({ portalName: "אקוופולקו חן בע\"מ", mainColor: "#3b82f6", headerTextColor: "#ffffff", cardBg: "#1e293b", appFont: "system-ui" });
 
+            // State למודאלים
             const [showAddProject, setShowAddProject] = useState(false);
             const [editProjectModal, setEditProjectModal] = useState(null);
             const [statusModal, setStatusModal] = useState(null);
+            const [materialsModal, setMaterialsModal] = useState(null);
             const [photosModal, setPhotosModal] = useState(null);
-            const [currentProjectPhotos, setCurrentProjectPhotos] = useState([]);
             const [inventoryItemModal, setInventoryItemModal] = useState(null);
             const [invModalTab, setInvModalTab] = useState("gallery");
+            const [deliveryModal, setDeliveryModal] = useState(null);
+            const [signRequirement, setSignRequirement] = useState(null);
             const [isUploading, setIsUploading] = useState(false);
+
+            const sigPad = useRef(null);
+            const canvasRef = useRef(null);
+            const invSigPad = useRef(null);
+            const invCanvasRef = useRef(null);
 
             useEffect(() => {
                 const savedUser = localStorage.getItem("aquapoolco_user");
                 if (savedUser) setCurrentUser(JSON.parse(savedUser));
 
-                db.collection("settings").doc("general").onSnapshot(doc => doc.exists && setSettings(doc.data()));
+                db.collection("settings").doc("general").onSnapshot(doc => {
+                    if (doc.exists) {
+                        const d = doc.data();
+                        setSettings(d);
+                        if (d.stages) setStages(d.stages);
+                    }
+                });
                 db.collection("projects").orderBy("createdAt", "desc").onSnapshot(s => setProjects(s.docs.map(d => ({id: d.id, ...d.data()}))));
                 db.collection("users").onSnapshot(s => setUsers(s.docs.map(d => ({id: d.id, ...d.data()}))));
                 db.collection("inventory").onSnapshot(s => setInventory(s.docs.map(d => ({id: d.id, ...d.data()}))));
                 db.collection("attendance").orderBy("timestamp", "desc").onSnapshot(s => setAttendance(s.docs.map(d => ({id: d.id, ...d.data()}))));
             }, []);
 
-            const handleLogin = (e) => {
-                e.preventDefault();
-                const user = users.find(u => u.username === loginUsername && u.password === loginPassword);
-                if (user) {
-                    setCurrentUser(user);
-                    localStorage.setItem("aquapoolco_user", JSON.stringify(user));
-                } else if (loginUsername === "roeigalam" && loginPassword === "2026") {
-                    const admin = { name: "רועי גלם", role: "admin", id: "admin-roei" };
-                    setCurrentUser(admin);
-                    localStorage.setItem("aquapoolco_user", JSON.stringify(admin));
-                } else {
-                    alert("פרטי התחברות שגויים");
-                }
+            useEffect(() => {
+                let timeout;
+                const resizeCanvas = (ref, padRef) => {
+                    if (ref.current) {
+                        const canvas = ref.current;
+                        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+                        canvas.width = canvas.offsetWidth * ratio; canvas.height = canvas.offsetHeight * ratio;
+                        canvas.getContext("2d").scale(ratio, ratio);
+                        padRef.current = new SignaturePad(canvas, { backgroundColor: 'rgb(255, 255, 255)' });
+                    }
+                };
+                if (signRequirement || deliveryModal) timeout = setTimeout(() => resizeCanvas(canvasRef, sigPad), 150);
+                if (inventoryItemModal && invModalTab === 'receive') timeout = setTimeout(() => resizeCanvas(invCanvasRef, invSigPad), 150);
+                return () => clearTimeout(timeout);
+            }, [signRequirement, deliveryModal, inventoryItemModal, invModalTab]);
+
+            const logAction = (action, lat = null, lng = null) => {
+                db.collection("attendance").add({ userId: currentUser.id, userName: currentUser.name, action, lat, lng, timestamp: new Date().toISOString() });
             };
 
-            const handleLogout = () => {
-                localStorage.removeItem("aquapoolco_user");
-                setCurrentUser(null);
+            const handleLogin = (e) => {
+                e.preventDefault();
+                const u = users.find(u => u.username === e.target.username.value && u.password === e.target.password.value);
+                if (u) { setCurrentUser(u); localStorage.setItem("aquapoolco_user", JSON.stringify(u)); }
+                else if (e.target.username.value === "roeigalam" && e.target.password.value === "2026") {
+                    const admin = { name: "רועי גלם", role: "admin", id: "admin-roei" };
+                    setCurrentUser(admin); localStorage.setItem("aquapoolco_user", JSON.stringify(admin));
+                } else { alert("טעות בפרטים"); }
             };
+
+            const handleLogout = () => { localStorage.removeItem("aquapoolco_user"); setCurrentUser(null); };
 
             // סידור נוכחות לפי ימים
             const groupedAttendance = attendance.reduce((groups, entry) => {
@@ -143,11 +147,11 @@
             if (!currentUser) return (
                 <div className="min-h-screen flex items-center justify-center p-4">
                     <form onSubmit={handleLogin} className="glass p-10 rounded-[2.5rem] w-full max-w-sm text-center shadow-2xl" style={{ borderTop: `6px solid ${settings.mainColor}` }}>
-                        <img src={LOGO_URL} className="h-24 mx-auto mb-6 bg-white p-3 rounded-2xl shadow-lg" />
-                        <h1 className="text-2xl font-black mb-8">Aquapoolco Elite</h1>
-                        <input type="text" placeholder="שם משתמש" required value={loginUsername} onChange={e=>setLoginUsername(e.target.value)} className="w-full p-4 bg-slate-900 rounded-xl mb-4 text-center text-white outline-none border border-slate-700 focus:border-blue-500" />
-                        <input type="password" placeholder="סיסמה" required value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} className="w-full p-4 bg-slate-900 rounded-xl mb-8 text-center text-white outline-none border border-slate-700 focus:border-blue-500" />
-                        <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-xl font-black text-lg shadow-lg hover:brightness-110 transition">כניסה למערכת</button>
+                        <img src={LOGO_URL} className="h-24 mx-auto mb-6 bg-white p-3 rounded-2xl" />
+                        <h1 className="text-2xl font-black mb-8 text-white">Aquapoolco Login</h1>
+                        <input name="username" type="text" placeholder="שם משתמש" className="w-full p-4 bg-slate-900 rounded-xl mb-4 text-center text-white outline-none border border-slate-700" required />
+                        <input name="password" type="password" placeholder="סיסמה" className="w-full p-4 bg-slate-900 rounded-xl mb-8 text-center text-white outline-none border border-slate-700" required />
+                        <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-xl font-black">כניסה</button>
                     </form>
                 </div>
             );
@@ -157,76 +161,72 @@
                     <header className="glass px-4 py-3 flex flex-col md:flex-row justify-between items-center sticky top-0 z-50 border-b border-white/5 gap-3">
                         <div className="flex items-center gap-3">
                             <img src={LOGO_URL} className="h-10 bg-white rounded-lg p-1" />
-                            <div>
-                                <div className="text-base font-black" style={{ color: settings.headerTextColor }}>{settings.portalName}</div>
-                                <div className="text-[10px] text-blue-400 font-bold">{currentUser.name} | {currentUser.role}</div>
-                            </div>
+                            <div className="text-base font-black" style={{ color: settings.headerTextColor }}>{settings.portalName}</div>
                         </div>
                         <nav className="flex gap-2 overflow-x-auto w-full md:w-auto hide-scroll pb-1">
-                            <button onClick={() => setActiveTab("board")} className={`px-4 py-2.5 rounded-xl font-bold transition-all text-sm whitespace-nowrap ${activeTab === "board" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>📊 לוח עבודה</button>
-                            {currentUser.role === 'admin' && <button onClick={() => setActiveTab("attendance")} className={`px-4 py-2.5 rounded-xl font-bold transition-all text-sm whitespace-nowrap ${activeTab === "attendance" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>📍 נוכחות</button>}
-                            <button onClick={() => setActiveTab("inventory")} className={`px-4 py-2.5 rounded-xl font-bold transition-all text-sm whitespace-nowrap ${activeTab === "inventory" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>📦 מחסן</button>
-                            {currentUser.role === 'admin' && <button onClick={() => setActiveTab("users")} className={`px-4 py-2.5 rounded-xl font-bold transition-all text-sm whitespace-nowrap ${activeTab === "users" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>👥 משתמשים</button>}
-                            {currentUser.role === 'admin' && <button onClick={() => setActiveTab("settings")} className={`px-4 py-2.5 rounded-xl font-bold transition-all text-sm whitespace-nowrap ${activeTab === "settings" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>⚙️ הגדרות</button>}
+                            <button onClick={() => setActiveTab("board")} className={`px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap ${activeTab === "board" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>📊 לוח עבודה</button>
+                            {currentUser.role === 'admin' && <button onClick={() => setActiveTab("attendance")} className={`px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap ${activeTab === "attendance" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>📍 נוכחות</button>}
+                            {(currentUser.role === 'admin' || currentUser.role === 'driver') && <button onClick={() => setActiveTab("deliveries")} className={`px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap ${activeTab === "deliveries" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>🚚 חלוקה</button>}
+                            <button onClick={() => setActiveTab("inventory")} className={`px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap ${activeTab === "inventory" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>📦 מחסן</button>
+                            {currentUser.role === 'admin' && <button onClick={() => setActiveTab("finance")} className={`px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap ${activeTab === "finance" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>💰 כספים</button>}
+                            {currentUser.role === 'admin' && <button onClick={() => setActiveTab("users")} className={`px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap ${activeTab === "users" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>👥 משתמשים</button>}
+                            {currentUser.role === 'admin' && <button onClick={() => setActiveTab("settings")} className={`px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap ${activeTab === "settings" ? "bg-blue-600 shadow-lg" : "bg-slate-800 text-slate-300"}`}>⚙️ הגדרות</button>}
                         </nav>
-                        <button onClick={handleLogout} className="text-slate-500 font-bold text-xs hover:text-white transition">התנתק 🚪</button>
+                        <button onClick={handleLogout} className="text-slate-500 font-bold text-xs">יציאה</button>
                     </header>
 
                     <main className="flex-1 p-4 md:p-8">
                         {activeTab === "board" && (
-                            <div className="max-w-[1400px] mx-auto space-y-6 animate-fade-in">
-                                <div className="flex justify-between items-center gap-4">
-                                    <input type="text" placeholder="🔍 חפש פרויקט..." className="flex-1 max-w-sm p-4 rounded-2xl bg-slate-900 border border-slate-800 text-white outline-none focus:border-blue-500" />
-                                    {currentUser.role === 'admin' && <button onClick={() => setShowAddProject(true)} className="bg-blue-600 px-6 py-4 rounded-2xl font-black text-white shadow-xl hover:scale-105 transition">+ פרויקט חדש</button>}
+                            <div className="max-w-[1400px] mx-auto space-y-6">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-2xl font-black">לוח פרויקטים</h2>
+                                    {currentUser.role === 'admin' && <button onClick={() => setShowAddProject(true)} className="bg-blue-600 px-6 py-3 rounded-xl font-black">+ פרויקט חדש</button>}
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {projects.map(p => (
-                                        <div key={p.id} className="bg-slate-900/80 p-6 rounded-[2.5rem] border border-white/5 shadow-2xl relative overflow-hidden group">
-                                            <div className="absolute top-0 right-0 w-2 h-full bg-blue-600 opacity-50"></div>
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div>
-                                                    <h3 className="font-black text-xl text-white mb-1">{p.name}</h3>
-                                                    <p className="text-xs text-slate-500 font-bold">📍 {p.address}</p>
+                                    {projects.map(p => {
+                                        const done = stages.filter(s => p.statuses && p.statuses[s.id] === 3).length;
+                                        const progress = stages.length ? Math.round((done / stages.length) * 100) : 0;
+                                        return (
+                                            <div key={p.id} className="bg-slate-900/80 p-6 rounded-[2rem] border border-white/5 shadow-2xl relative overflow-hidden">
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div>
+                                                        <h3 className="font-black text-xl flex items-center gap-2">{p.name} {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(p)} className="text-blue-400 text-sm">✏️</button>}</h3>
+                                                        <p className="text-xs text-slate-500">📍 {p.address}</p>
+                                                    </div>
+                                                    <button onClick={() => logAction(`ניווט ל${p.name}`)} className="bg-blue-600 px-3 py-1.5 rounded-lg text-xs font-black">🚗 Waze</button>
                                                 </div>
-                                                {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(p)} className="p-2 bg-slate-800 rounded-xl text-blue-400 hover:bg-blue-600 hover:text-white transition">✏️</button>}
-                                            </div>
-                                            <div className="flex justify-between items-center border-t border-white/5 pt-5 mt-4">
-                                                <div className="flex gap-2">
-                                                    <button onClick={() => setPhotosModal(p)} className="bg-slate-800 px-4 py-2.5 rounded-xl text-xs font-black text-slate-300 hover:bg-slate-700 transition">📷 תמונות</button>
-                                                    <button className="bg-slate-800 px-4 py-2.5 rounded-xl text-xs font-black text-slate-300 hover:bg-slate-700 transition">📦 ציוד</button>
+                                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                                    {stages.map(s => {
+                                                        const code = (p.statuses && p.statuses[s.id]) || 0;
+                                                        return <button key={s.id} onClick={() => setStatusModal({projId: p.id, stageId: s.id, stageLabel: s.label, projName: p.name, currentCode: code})} className={`p-2 rounded-lg text-[10px] font-bold text-white status-${code}`}>{s.label}: {statusLabels[code]}</button>
+                                                    })}
                                                 </div>
-                                                <div className="text-[10px] font-black uppercase text-blue-500 bg-blue-500/10 px-2 py-1 rounded-lg">פעיל</div>
+                                                <div className="flex items-center gap-3 mb-4"><span className="text-xs font-black">{progress}%</span><div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden"><div className="h-full bg-blue-600" style={{width: `${progress}%`}}></div></div></div>
+                                                <div className="flex justify-between pt-4 border-t border-white/5">
+                                                    <button onClick={() => setPhotosModal(p)} className="text-xs font-bold text-blue-400">📷 תמונות</button>
+                                                    <button onClick={() => setMaterialsModal(p)} className="text-xs font-bold text-amber-500">📦 ציוד</button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}
 
                         {activeTab === "attendance" && (
-                            <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
-                                <h2 className="text-2xl font-black text-white mb-8 border-r-4 border-blue-500 pr-4">📍 דוח נוכחות ופעילות שטח</h2>
-                                {Object.keys(groupedAttendance).length === 0 && <div className="text-center py-20 text-slate-500 font-bold">אין דיווחים עדיין.</div>}
+                            <div className="max-w-4xl mx-auto space-y-8">
+                                <h2 className="text-2xl font-black mb-8 border-r-4 border-blue-500 pr-4">📍 דוח נוכחות יומי</h2>
                                 {Object.keys(groupedAttendance).map(date => (
-                                    <div key={date} className="bg-slate-900 rounded-[2rem] overflow-hidden border border-white/5 shadow-2xl">
-                                        <div className="bg-blue-600/10 p-5 font-black text-blue-400 border-b border-white/5 flex justify-between">
-                                            <span>📅 {date}</span>
-                                            <span className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded-lg uppercase">{groupedAttendance[date].length} דיווחים</span>
-                                        </div>
+                                    <div key={date} className="bg-slate-900 rounded-[2rem] overflow-hidden border border-white/5 shadow-xl">
+                                        <div className="bg-blue-600/10 p-4 font-black text-blue-400 border-b border-white/5">📅 {date}</div>
                                         <div className="divide-y divide-white/5">
                                             {groupedAttendance[date].map(log => (
-                                                <div key={log.id} className="p-5 flex justify-between items-center hover:bg-white/5 transition">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center font-bold text-blue-400">👤</div>
-                                                        <div>
-                                                            <div className="font-black text-white">{log.userName}</div>
-                                                            <div className="text-xs text-emerald-400 font-bold">{log.action}</div>
-                                                        </div>
+                                                <div key={log.id} className="p-4 flex justify-between items-center hover:bg-white/5">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="font-black">{log.userName}</div>
+                                                        <div className="text-xs text-emerald-400 font-bold">{log.action}</div>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <div className="text-xs text-slate-500 font-mono mb-1">{new Date(log.timestamp).toLocaleTimeString('he-IL')}</div>
-                                                        {log.lat && <button className="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-1 rounded font-bold">🗺️ מפה</button>}
-                                                    </div>
+                                                    <div className="text-xs text-slate-500">{new Date(log.timestamp).toLocaleTimeString('he-IL')}</div>
                                                 </div>
                                             ))}
                                         </div>
@@ -236,22 +236,18 @@
                         )}
 
                         {activeTab === "inventory" && (
-                            <div className="max-w-6xl mx-auto animate-fade-in">
-                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10">
-                                    <h2 className="text-2xl font-black text-white border-r-4 border-amber-500 pr-4">📦 ניהול מלאי מחסן עלית</h2>
-                                    <button onClick={() => setShowAddInventory(true)} className="w-full md:w-auto bg-amber-600 px-8 py-4 rounded-2xl font-black text-white shadow-xl hover:scale-105 transition">➕ פריט חדש למחסן</button>
+                            <div className="max-w-6xl mx-auto">
+                                <div className="flex justify-between items-center mb-8">
+                                    <h2 className="text-2xl font-black">📦 מלאי מחסן</h2>
+                                    <button onClick={() => setShowAddInventory(true)} className="bg-amber-600 px-6 py-3 rounded-xl font-black text-white">➕ פריט חדש</button>
                                 </div>
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                                     {inventory.map(item => (
-                                        <div key={item.id} className="bg-slate-900 p-6 rounded-[2rem] text-center border border-white/5 shadow-xl group hover:border-amber-500/30 transition">
-                                            <div className="text-[10px] text-slate-500 font-black uppercase mb-2 bg-slate-800 inline-block px-2 py-1 rounded-md">{item.category}</div>
-                                            <div className="font-black text-lg text-white mb-6 h-12 flex items-center justify-center">{item.name}</div>
-                                            <div className="flex items-center justify-between bg-slate-800 p-3 rounded-2xl mb-4">
-                                                <button className="w-10 h-10 bg-slate-700 rounded-xl font-black text-xl hover:bg-red-500/20 hover:text-red-500 transition">-</button>
-                                                <span className="text-3xl font-black text-white">{item.quantity}</span>
-                                                <button className="w-10 h-10 bg-slate-700 rounded-xl font-black text-xl hover:bg-emerald-500/20 hover:text-emerald-500 transition">+</button>
-                                            </div>
-                                            <button onClick={() => setInventoryItemModal(item)} className="w-full bg-amber-600/10 text-amber-500 py-3 rounded-xl font-black text-xs hover:bg-amber-600 hover:text-white transition">📂 ניהול וקליטה</button>
+                                        <div key={item.id} className="bg-slate-900 p-6 rounded-[2rem] border border-white/5 text-center shadow-lg">
+                                            <div className="text-[10px] text-slate-500 font-black mb-1 uppercase">{item.category}</div>
+                                            <div className="font-black text-lg mb-4 h-12 flex items-center justify-center">{item.name}</div>
+                                            <div className="text-3xl font-black text-blue-400 mb-4">{item.quantity}</div>
+                                            <button onClick={() => setInventoryItemModal(item)} className="w-full bg-amber-600/10 text-amber-500 py-2 rounded-xl text-xs font-black">📂 ניהול מלאי</button>
                                         </div>
                                     ))}
                                 </div>
@@ -259,93 +255,169 @@
                         )}
 
                         {activeTab === "users" && (
-                            <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h2 className="text-2xl font-black text-white border-r-4 border-purple-500 pr-4">👥 ניהול משתמשים והרשאות</h2>
-                                    <button className="bg-purple-600 px-6 py-3 rounded-2xl font-black text-white shadow-lg">+ עובד חדש</button>
-                                </div>
+                            <div className="max-w-4xl mx-auto space-y-6">
+                                <h2 className="text-2xl font-black">👥 משתמשים והרשאות</h2>
                                 <div className="grid gap-4">
                                     {users.map(u => (
-                                        <div key={u.id} className="bg-slate-900 p-5 rounded-3xl border border-white/5 flex justify-between items-center shadow-xl">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 bg-slate-800 rounded-2xl flex items-center justify-center text-xl shadow-inner">👤</div>
-                                                <div>
-                                                    <div className="font-black text-white text-lg">{u.name}</div>
-                                                    <div className="text-xs text-purple-400 font-bold uppercase tracking-widest">{u.role}</div>
-                                                </div>
-                                            </div>
+                                        <div key={u.id} className="bg-slate-900 p-5 rounded-3xl flex justify-between items-center border border-white/5">
+                                            <div><div className="font-black text-lg">{u.name}</div><div className="text-xs text-purple-400 font-bold">{u.role}</div></div>
                                             <div className="flex gap-2">
-                                                <button className="p-2 bg-slate-800 rounded-xl text-slate-400 hover:text-white transition">✏️</button>
-                                                <button className="p-2 bg-slate-800 rounded-xl text-red-400 hover:bg-red-500 hover:text-white transition">🗑️</button>
+                                                <button className="text-blue-400">✏️</button>
+                                                <button onClick={() => {if(window.confirm('למחוק?')) db.collection('users').doc(u.id).delete()}} className="text-red-400">🗑️</button>
                                             </div>
                                         </div>
                                     ))}
+                                    <button onClick={() => {
+                                        const n = prompt("שם עובד:");
+                                        const r = prompt("תפקיד (admin/worker/driver):");
+                                        const un = prompt("שם משתמש:");
+                                        const pw = prompt("סיסמה:");
+                                        if(n && r && un && pw) db.collection("users").add({ name: n, role: r, username: un, password: pw });
+                                    }} className="bg-purple-600 py-4 rounded-xl font-black">+ עובד חדש</button>
                                 </div>
                             </div>
                         )}
 
                         {activeTab === "settings" && (
-                            <div className="max-w-3xl mx-auto animate-fade-in">
-                                <h2 className="text-2xl font-black text-white mb-8 border-r-4 border-slate-500 pr-4">⚙️ הגדרות מערכת ועיצוב מותג</h2>
-                                <div className="bg-slate-900 rounded-[2.5rem] p-8 border border-white/5 shadow-2xl space-y-8">
-                                    <div className="grid md:grid-cols-2 gap-8">
-                                        <div className="space-y-6">
-                                            <div>
-                                                <label className="block text-xs text-slate-500 font-black uppercase mb-3">שם הפורטל</label>
-                                                <input value={settings.portalName} onChange={e => setSettings({...settings, portalName: e.target.value})} className="w-full bg-slate-800 p-4 rounded-2xl outline-none font-bold focus:ring-2 ring-blue-500/50" />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs text-slate-500 font-black uppercase mb-3">מייל משרד לקבלת דוחות</label>
-                                                <input value={settings.officeEmail} onChange={e => setSettings({...settings, officeEmail: e.target.value})} className="w-full bg-slate-800 p-4 rounded-2xl outline-none font-bold dir-ltr text-right" />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-6">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="block text-xs text-slate-500 font-black uppercase mb-3">צבע מותג</label>
-                                                    <div className="flex gap-2 bg-slate-800 p-2 rounded-2xl">
-                                                        <input type="color" value={settings.mainColor} onChange={e => setSettings({...settings, mainColor: e.target.value})} className="w-10 h-10 rounded-xl bg-transparent border-0 cursor-pointer" />
-                                                        <input value={settings.mainColor} className="flex-1 bg-transparent text-xs font-mono outline-none pt-2" />
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs text-slate-500 font-black uppercase mb-3">צבע כותרות</label>
-                                                    <div className="flex gap-2 bg-slate-800 p-2 rounded-2xl">
-                                                        <input type="color" value={settings.headerTextColor} onChange={e => setSettings({...settings, headerTextColor: e.target.value})} className="w-10 h-10 rounded-xl bg-transparent border-0 cursor-pointer" />
-                                                        <input value={settings.headerTextColor} className="flex-1 bg-transparent text-xs font-mono outline-none pt-2" />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs text-slate-500 font-black uppercase mb-3">צבע רקע כרטיסים</label>
-                                                <div className="flex gap-2 bg-slate-800 p-2 rounded-2xl">
-                                                    <input type="color" value={settings.cardBg} onChange={e => setSettings({...settings, cardBg: e.target.value})} className="w-10 h-10 rounded-xl bg-transparent border-0 cursor-pointer" />
-                                                    <input value={settings.cardBg} className="flex-1 bg-transparent text-xs font-mono outline-none pt-2" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="pt-6 border-t border-white/5">
-                                        <button onClick={() => { db.collection("settings").doc("general").set(settings); alert("הגדרות המערכת והעיצוב נשמרו בהצלחה!"); }} className="w-full bg-blue-600 py-5 rounded-2xl font-black text-lg shadow-xl hover:brightness-110 active:scale-95 transition">💾 שמור את כל השינויים</button>
-                                    </div>
+                            <div className="max-w-3xl mx-auto bg-slate-900 p-8 rounded-[2.5rem] border border-white/5 space-y-8 shadow-2xl">
+                                <h2 className="text-2xl font-black mb-8 border-r-4 border-slate-500 pr-4">⚙️ הגדרות מערכת ועיצוב</h2>
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    <div><label className="text-xs text-slate-500 font-bold block mb-2">שם הפורטל</label><input value={settings.portalName} onChange={e=>setSettings({...settings, portalName: e.target.value})} className="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold" /></div>
+                                    <div><label className="text-xs text-slate-500 font-bold block mb-2">צבע מותג</label><input type="color" value={settings.mainColor} onChange={e=>setSettings({...settings, mainColor: e.target.value})} className="w-full h-14 bg-transparent border-0 cursor-pointer" /></div>
+                                    <div><label className="text-xs text-slate-500 font-bold block mb-2">צבע כותרות</label><input type="color" value={settings.headerTextColor} onChange={e=>setSettings({...settings, headerTextColor: e.target.value})} className="w-full h-14 bg-transparent border-0 cursor-pointer" /></div>
+                                    <div><label className="text-xs text-slate-500 font-bold block mb-2">רקע כרטיסים</label><input type="color" value={settings.cardBg} onChange={e=>setSettings({...settings, cardBg: e.target.value})} className="w-full h-14 bg-transparent border-0 cursor-pointer" /></div>
                                 </div>
+                                <div className="pt-6 border-t border-white/5">
+                                    <h3 className="font-black mb-4">שלבי פרויקט:</h3>
+                                    {stages.map((s, idx) => (
+                                        <div key={idx} className="flex gap-2 mb-2">
+                                            <input value={s.label} onChange={e => { const n = [...stages]; n[idx].label = e.target.value; setStages(n); }} className="flex-1 bg-slate-800 p-3 rounded-lg text-sm" />
+                                            <button onClick={() => setStages(stages.filter((_, i) => i !== idx))} className="text-red-400">X</button>
+                                        </div>
+                                    ))}
+                                    <button onClick={() => setStages([...stages, {id: Date.now().toString(), label: "שלב חדש"}])} className="text-blue-400 text-sm font-bold mt-2">+ הוסף שלב</button>
+                                </div>
+                                <button onClick={() => { db.collection("settings").doc("general").set({...settings, stages}); alert("נשמר!"); }} className="w-full bg-blue-600 py-5 rounded-2xl font-black text-lg">שמור הכל</button>
+                            </div>
+                        )}
+
+                        {activeTab === "deliveries" && (
+                            <div className="max-w-4xl mx-auto space-y-6">
+                                <h2 className="text-2xl font-black">🚚 משימות חלוקה</h2>
+                                {projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending').map(m => (
+                                    <div key={m.id} className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 flex flex-col md:flex-row justify-between items-center gap-4">
+                                        <div><div className="font-black text-lg">{p.name}</div><div className="text-amber-500 font-bold">{m.quantity} x {m.name}</div></div>
+                                        <div className="flex gap-3 w-full md:w-auto">
+                                            <button onClick={() => setDeliveryModal({proj: p, mat: m, type: 'cancel'})} className="flex-1 bg-red-600/20 text-red-500 py-3 px-6 rounded-xl font-bold">ביטול</button>
+                                            <button onClick={() => setDeliveryModal({proj: p, mat: m, type: 'confirm'})} className="flex-1 bg-emerald-600 py-3 px-6 rounded-xl font-bold text-white">סופק ✓</button>
+                                        </div>
+                                    </div>
+                                )))}
+                            </div>
+                        )}
+
+                        {activeTab === "finance" && (
+                            <div className="max-w-5xl mx-auto space-y-6">
+                                <h2 className="text-2xl font-black">💰 כספים וגבייה</h2>
+                                {projects.map(p => (
+                                    <div key={p.id} className="bg-slate-900 p-6 rounded-[2rem] border border-white/5 grid md:grid-cols-4 gap-4 items-end shadow-xl">
+                                        <div className="md:col-span-4 font-black text-xl border-b border-white/5 pb-2 mb-2">{p.name}</div>
+                                        <div><label className="text-[10px] text-slate-500 font-bold block mb-1">תקציב (₪)</label><input type="number" defaultValue={p.budget || 0} onBlur={e=>handleFinanceChange(p.id, 'budget', e.target.value)} className="w-full bg-slate-800 p-3 rounded-xl outline-none" /></div>
+                                        <div><label className="text-[10px] text-slate-500 font-bold block mb-1">שולם א' (₪)</label><input type="number" defaultValue={p.payStageA || 0} onBlur={e=>handleFinanceChange(p.id, 'payStageA', e.target.value)} className="w-full bg-slate-800 p-3 rounded-xl outline-none" /></div>
+                                        <div><label className="text-[10px] text-slate-500 font-bold block mb-1">שולם ב' (₪)</label><input type="number" defaultValue={p.payStageB || 0} onBlur={e=>handleFinanceChange(p.id, 'payStageB', e.target.value)} className="w-full bg-slate-800 p-3 rounded-xl outline-none" /></div>
+                                        <div className="text-emerald-400 font-black text-lg bg-emerald-500/10 p-3 rounded-xl text-center">יתרה: ₪{(p.budget || 0) - ((p.payStageA || 0) + (p.payStageB || 0))}</div>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </main>
 
-                    {/* מודאלים משוחזרים */}
+                    {/* מודאלים */}
+                    {statusModal && (
+                        <div className="fixed inset-0 bg-slate-900/90 z-50 flex items-end md:items-center justify-center p-4">
+                            <div className="bg-[#1e293b] w-full max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl border-t-4 border-blue-500">
+                                <h3 className="text-center font-black mb-6 text-xl">{statusModal.stageLabel}</h3>
+                                <div className="space-y-3">
+                                    {[0,1,2,3].map(c => <button key={c} onClick={() => setSignRequirement({...statusModal, code: c, newStatus: statusLabels[c]})} className={`w-full py-4 rounded-xl font-black status-${c}`}>{statusLabels[c]}</button>)}
+                                </div>
+                                <button onClick={()=>setStatusModal(null)} className="w-full mt-4 text-slate-500 font-bold py-2">ביטול</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {signRequirement && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-[60] flex items-center justify-center p-4">
+                            <form onSubmit={e => {
+                                e.preventDefault(); setIsUploading(true);
+                                const proj = projects.find(p=>p.id===signRequirement.projId);
+                                db.collection("projects").doc(signRequirement.projId).update({ [`statuses.${signRequirement.stageId}`]: signRequirement.code, [`signatures.${signRequirement.stageId}`]: { name: currentUser.name, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() } });
+                                logAction(`עדכון סטטוס: ${signRequirement.newStatus} ב-${proj.name}`); setSignRequirement(null); setStatusModal(null); setIsUploading(false);
+                            }} className="bg-[#1e293b] w-full max-w-md rounded-[2.5rem] p-8">
+                                <h2 className="text-xl font-black text-center mb-6">חתימת אישור שלב</h2>
+                                <div className="bg-white rounded-2xl h-48 mb-6 relative overflow-hidden"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full" /></div>
+                                <button type="submit" disabled={isUploading} className="w-full theme-bg text-white py-4 rounded-xl font-black text-lg">אשר וחתום ✓</button>
+                                <button type="button" onClick={()=>setSignRequirement(null)} className="w-full mt-2 text-slate-500 font-bold">ביטול</button>
+                            </form>
+                        </div>
+                    )}
+
+                    {inventoryItemModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <div className="bg-[#1e293b] w-full max-w-md rounded-[2rem] p-6 shadow-2xl">
+                                <h2 className="text-xl font-black mb-4">{inventoryItemModal.name}</h2>
+                                <form onSubmit={e => {
+                                    e.preventDefault();
+                                    const curr = inventory.find(i=>i.id===inventoryItemModal.id);
+                                    db.collection("inventory").doc(inventoryItemModal.id).update({ quantity: curr.quantity + Number(e.target.qty.value) });
+                                    logAction(`קליטת מלאי: +${e.target.qty.value} ל-${curr.name}`);
+                                    setInventoryItemModal(null);
+                                }}>
+                                    <label className="block text-xs text-slate-400 mb-1 font-bold">כמות לקליטה</label>
+                                    <input name="qty" type="number" className="w-full bg-slate-900 p-4 rounded-xl mb-4 text-center font-black text-3xl" required />
+                                    <div className="bg-white rounded-xl h-32 mb-4 relative overflow-hidden"><canvas ref={invCanvasRef} className="absolute inset-0 w-full h-full" /></div>
+                                    <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-xl font-black">אשר קליטה למלאי</button>
+                                </form>
+                                <button onClick={()=>setInventoryItemModal(null)} className="w-full mt-2 text-slate-500 font-bold">סגור</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {deliveryModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <form onSubmit={e => {
+                                e.preventDefault();
+                                const {proj, mat, type} = deliveryModal;
+                                if(type === 'confirm') {
+                                    const upd = proj.allocatedMaterials.map(m => m.id === mat.id ? {...m, status: 'delivered', driverSig: sigPad.current.toDataURL()} : m);
+                                    db.collection("projects").doc(proj.id).update({ allocatedMaterials: upd });
+                                    logAction(`אספקה מוצלחת: ${mat.name} ל-${proj.name}`);
+                                } else {
+                                    const upd = proj.allocatedMaterials.filter(m => m.id !== mat.id);
+                                    db.collection("projects").doc(proj.id).update({ allocatedMaterials: upd });
+                                    logAction(`ביטול אספקה: ${mat.name} (סיבה: ${e.target.reason.value})`);
+                                }
+                                setDeliveryModal(null);
+                            }} className="bg-[#1e293b] w-full max-w-md rounded-[2.5rem] p-8">
+                                <h2 className="text-center font-black mb-4 text-xl">{deliveryModal.type === 'confirm' ? 'אישור אספקה' : 'ביטול משימה'}</h2>
+                                {deliveryModal.type === 'confirm' ? <div className="bg-white rounded-2xl h-40 mb-6 relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full" /></div> : <textarea name="reason" placeholder="סיבת ביטול..." className="w-full bg-slate-900 p-4 rounded-xl mb-4" required />}
+                                <button type="submit" className={`w-full py-4 rounded-xl font-black ${deliveryModal.type === 'confirm' ? 'bg-emerald-600' : 'bg-red-600'}`}>בצע פעולה</button>
+                                <button type="button" onClick={()=>setDeliveryModal(null)} className="w-full mt-2 text-slate-500 font-bold">חזור</button>
+                            </form>
+                        </div>
+                    )}
+
                     {showAddProject && (
-                        <div className="fixed inset-0 bg-slate-900/95 z-[100] flex items-center justify-center p-4 animate-fade-in">
-                            <form onSubmit={e => { e.preventDefault(); db.collection("projects").add({ name: e.target.n.value, address: e.target.a.value, createdAt: firebase.firestore.Timestamp.now(), statuses: {}, isFinished: false }); setShowAddProject(false); }} className="bg-[#1e293b] w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl border-t-8 border-blue-600">
-                                <h2 className="text-2xl font-black mb-6 text-white text-center">הקמת פרויקט חדש</h2>
-                                <div className="space-y-4">
-                                    <input name="n" placeholder="שם פרויקט / לקוח" className="w-full bg-slate-900 p-4 rounded-xl outline-none font-bold focus:ring-2 ring-blue-500/30" required />
-                                    <input name="a" placeholder="כתובת מלאה (לניווט)" className="w-full bg-slate-900 p-4 rounded-xl outline-none font-bold focus:ring-2 ring-blue-500/30" required />
-                                </div>
-                                <div className="flex flex-col gap-3 mt-8">
-                                    <button type="submit" className="w-full bg-blue-600 py-4 rounded-xl font-black text-lg shadow-lg">צור פרויקט ✓</button>
-                                    <button type="button" onClick={() => setShowAddProject(false)} className="w-full text-slate-500 font-bold">ביטול</button>
-                                </div>
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <form onSubmit={e => {
+                                e.preventDefault();
+                                db.collection("projects").add({ name: e.target.n.value, address: e.target.a.value, createdAt: firebase.firestore.Timestamp.now(), statuses: {}, isFinished: false });
+                                setShowAddProject(false);
+                            }} className="bg-[#1e293b] w-full max-w-md rounded-[2rem] p-8 border-t-8 border-blue-600">
+                                <h2 className="text-xl font-black mb-6">פרויקט חדש במערכת</h2>
+                                <input name="n" placeholder="שם הלקוח / פרויקט" className="w-full bg-slate-900 p-4 rounded-xl mb-4 font-bold" required />
+                                <input name="a" placeholder="כתובת מלאה (לווייז)" className="w-full bg-slate-900 p-4 rounded-xl mb-8 font-bold" required />
+                                <button type="submit" className="w-full bg-blue-600 py-4 rounded-xl font-black text-lg">הקם פרויקט ✓</button>
+                                <button type="button" onClick={()=>setShowAddProject(false)} className="w-full mt-2 text-slate-500 font-bold">ביטול</button>
                             </form>
                         </div>
                     )}
