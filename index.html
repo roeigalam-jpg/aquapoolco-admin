@@ -29,7 +29,6 @@
         td { padding: 1rem 0.5rem; border-bottom: 1px solid #334155; white-space: nowrap; }
         tr:hover td { background: rgba(255,255,255,0.02); }
         
-        /* כפתורי סטטוס שמותאמים גם למגע באצבע (מובייל) */
         .status-cell { cursor: pointer; border-radius: 0.5rem; text-align: center; font-weight: bold; padding: 0.75rem 0.5rem; transition: all 0.2s; border: 1px solid transparent; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 3rem; }
         .status-cell:active { transform: scale(0.95); }
         
@@ -44,10 +43,11 @@
         
         .signature-pad { background: white; border-radius: 8px; cursor: crosshair; touch-action: none; border: 2px solid #3b82f6; }
         .dir-ltr { direction: ltr; }
-        
-        /* הסתרת כפתורי גלילה מהירה למובייל בתפריט העליון */
         .hide-scroll::-webkit-scrollbar { display: none; }
         .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .loader { border: 4px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="antialiased">
@@ -72,7 +72,6 @@
 
         function App() {
             const [currentUser, setCurrentUser] = useState(null);
-            
             const [loginUsername, setLoginUsername] = useState("");
             const [loginPassword, setLoginPassword] = useState("");
             
@@ -87,6 +86,8 @@
             
             const [users, setUsers] = useState([]);
             const [inventory, setInventory] = useState([]);
+            const [attendanceLogs, setAttendanceLogs] = useState([]);
+            
             const [activeTab, setActiveTab] = useState("board");
             const [searchTerm, setSearchTerm] = useState("");
             
@@ -100,13 +101,20 @@
             const [statusModal, setStatusModal] = useState(null);
             const [finishModal, setFinishModal] = useState(null); 
             
+            // מודל החומרים המשופר
+            const [materialsModal, setMaterialsModal] = useState(null);
+            const [materialReqType, setMaterialReqType] = useState("stock"); // 'stock' או 'special'
+            const [materialSignData, setMaterialSignData] = useState(null); // שמירת נתונים להמתנה לחתימה
+            
+            const [photosModal, setPhotosModal] = useState(null);
+            const [currentProjectPhotos, setCurrentProjectPhotos] = useState([]);
+            const [isUploading, setIsUploading] = useState(false);
+            
             const [signRequirement, setSignRequirement] = useState(null);
             const sigPad = useRef(null);
             const canvasRef = useRef(null);
             const [signerName, setSignerName] = useState("");
             const [signerId, setSignerId] = useState("");
-
-            const [materialsModal, setMaterialsModal] = useState(null);
 
             useEffect(() => {
                 db.collection("settings").doc("general").onSnapshot(doc => {
@@ -129,14 +137,25 @@
                 db.collection("inventory").onSnapshot(snapshot => {
                     setInventory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 });
+                db.collection("attendance").orderBy("timestamp", "desc").limit(100).onSnapshot(snapshot => {
+                    setAttendanceLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
             }, []);
 
             useEffect(() => {
-                if (signRequirement && canvasRef.current) {
-                    // הגדרת חתימה למובייל
+                let unsubscribe = () => {};
+                if (photosModal) {
+                    unsubscribe = db.collection("project_photos").where("projId", "==", photosModal.id).orderBy("timestamp", "desc").onSnapshot(snapshot => {
+                        setCurrentProjectPhotos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    });
+                }
+                return () => unsubscribe();
+            }, [photosModal]);
+
+            // הפעלת לוח חתימה (עובד גם על חתימת סטטוס וגם על חתימת ציוד)
+            useEffect(() => {
+                if ((signRequirement || materialSignData) && canvasRef.current) {
                     sigPad.current = new SignaturePad(canvasRef.current, { backgroundColor: 'rgb(255, 255, 255)' });
-                    
-                    // תיקון קנה מידה במובייל לחתימה חלקה
                     const resizeCanvas = () => {
                         const canvas = canvasRef.current;
                         if(canvas) {
@@ -151,7 +170,7 @@
                     resizeCanvas();
                     return () => window.removeEventListener("resize", resizeCanvas);
                 }
-            }, [signRequirement]);
+            }, [signRequirement, materialSignData]);
 
             const handleLogin = (e) => {
                 e.preventDefault();
@@ -163,6 +182,124 @@
                 if (userDoc) setCurrentUser(userDoc);
                 else alert("שם משתמש או סיסמה שגויים. נסה שנית.");
             };
+
+            const logAttendanceAndLocation = (actionDetails, callback = null) => {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        position => {
+                            db.collection("attendance").add({ userId: currentUser.id, userName: currentUser.name, action: actionDetails, lat: position.coords.latitude, lng: position.coords.longitude, timestamp: new Date().toISOString() });
+                            if (callback) callback();
+                        },
+                        error => {
+                            console.warn("Location permission denied or failed.");
+                            db.collection("attendance").add({ userId: currentUser.id, userName: currentUser.name, action: actionDetails + " (ללא מיקום)", lat: null, lng: null, timestamp: new Date().toISOString() });
+                            if (callback) callback();
+                        },
+                        { enableHighAccuracy: true, timeout: 5000 }
+                    );
+                } else { if (callback) callback(); }
+            };
+
+            const handleWazeClick = (proj, e) => {
+                e.preventDefault();
+                const wazeUrl = `waze://?q=${encodeURIComponent(proj.address)}&navigate=yes`;
+                logAttendanceAndLocation(`יציאה לניווט: ${proj.name}`, () => { window.location.href = wazeUrl; });
+                setTimeout(() => { window.location.href = wazeUrl; }, 1000);
+            };
+
+            const handlePhotoUpload = (e) => {
+                const file = e.target.files[0]; if (!file) return;
+                setIsUploading(true);
+                const reader = new FileReader(); reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image(); img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000; const scaleSize = MAX_WIDTH / img.width;
+                        canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize;
+                        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        db.collection("project_photos").add({
+                            projId: photosModal.id, projName: photosModal.name, imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString()
+                        }).then(() => { setIsUploading(false); }).catch(() => { alert("שגיאה בהעלאה"); setIsUploading(false); });
+                    };
+                };
+            };
+
+            const deletePhoto = (photoId) => { if(window.confirm("למחוק את התמונה לצמיתות?")) db.collection("project_photos").doc(photoId).delete(); };
+
+            const confirmSignatureAndStatus = () => {
+                if (!signerName || signerName.length < 2) return alert("יש להזין שם מלא");
+                if (!signerId || signerId.length !== 9 || isNaN(signerId)) return alert("ת.ז חייבת להכיל 9 ספרות בדיוק");
+                if (sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס");
+
+                const proj = projects.find(p => p.id === signRequirement.projId);
+                logAttendanceAndLocation(`עדכון סטטוס: ${signRequirement.newStatus} בפרויקט ${proj.name}`);
+
+                db.collection("projects").doc(signRequirement.projId).update({
+                    [`statuses.${signRequirement.stageId}`]: signRequirement.code,
+                    [`signatures.${signRequirement.stageId}`]: { name: signerName, id: signerId, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() }
+                });
+
+                setSignRequirement(null); setStatusModal(null); setSignerName(""); setSignerId("");
+            };
+
+            // ---- תהליך הזמנת ציוד וחומרים החדש ----
+            const handleMaterialSubmit = (e) => {
+                e.preventDefault();
+                const data = { type: materialReqType, qty: Number(e.target.qty.value) };
+
+                if (materialReqType === 'stock') {
+                    const itemId = e.target.itemId.value;
+                    const item = inventory.find(i => i.id === itemId);
+                    if (!item) return alert("שגיאה בזיהוי הפריט");
+                    if (item.quantity < data.qty) return alert("אין מספיק פריטים במלאי המחסן!");
+                    data.itemId = itemId;
+                    data.itemName = item.name;
+                } else {
+                    const specialText = e.target.specialText.value.trim();
+                    if (!specialText) return alert("חובה להזין את פירוט הבקשה!");
+                    data.itemName = "הזמנה מיוחדת: " + specialText;
+                }
+
+                if (currentUser.role === 'admin') {
+                    // מנהל - מבצע ישר
+                    executeMaterialAllocation(data, null);
+                } else {
+                    // עובד שטח - שומר נתונים ופותח חלון חתימה
+                    setMaterialSignData(data);
+                }
+            };
+
+            const confirmMaterialSignature = () => {
+                if (!signerName || signerName.length < 2) return alert("יש להזין שם מלא");
+                if (!signerId || signerId.length !== 9 || isNaN(signerId)) return alert("ת.ז חייבת להכיל 9 ספרות בדיוק");
+                if (sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הבקשה");
+
+                const signature = { name: signerName, id: signerId, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() };
+                executeMaterialAllocation(materialSignData, signature);
+                setSignerName(""); setSignerId("");
+            };
+
+            const executeMaterialAllocation = (data, signature) => {
+                // אם זה מהמלאי - נוריד מהמלאי
+                if (data.type === 'stock') {
+                    const item = inventory.find(i => i.id === data.itemId);
+                    db.collection("inventory").doc(data.itemId).update({ quantity: item.quantity - data.qty });
+                }
+
+                const currentMaterials = materialsModal.allocatedMaterials || [];
+                const newMaterialObj = { id: Date.now().toString(), name: data.itemName, quantity: data.qty, date: new Date().toISOString(), status: 'pending' };
+                if (signature) newMaterialObj.signature = signature;
+
+                db.collection("projects").doc(materialsModal.id).update({
+                    allocatedMaterials: [...currentMaterials, newMaterialObj]
+                });
+
+                logAttendanceAndLocation(`בקשת ציוד לפרויקט: ${data.itemName}`);
+                alert("הבקשה נרשמה בהצלחה!");
+                setMaterialSignData(null);
+                setMaterialsModal(null); // סוגר את החלון בסיום
+            };
+            // ----------------------------------------
 
             const exportPDF = (proj, callback = null) => {
                 const element = document.createElement('div');
@@ -222,80 +359,17 @@
                 html2pdf().set(opt).from(element).save().then(() => { if (callback) callback(); });
             };
 
-            const confirmSignatureAndStatus = () => {
-                if (!signerName || signerName.length < 2) return alert("יש להזין שם מלא");
-                if (!signerId || signerId.length !== 9 || isNaN(signerId)) return alert("ת.ז חייבת להכיל 9 ספרות בדיוק");
-                if (sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס");
-
-                db.collection("projects").doc(signRequirement.projId).update({
-                    [`statuses.${signRequirement.stageId}`]: signRequirement.code,
-                    [`signatures.${signRequirement.stageId}`]: { name: signerName, id: signerId, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() }
-                });
-
-                setSignRequirement(null); setStatusModal(null); setSignerName(""); setSignerId("");
-            };
-
-            const handleAllocateMaterial = (e) => {
-                e.preventDefault();
-                const invId = e.target.item.value; const qty = Number(e.target.qty.value);
-                const item = inventory.find(i => i.id === invId);
-                if(!item || item.quantity < qty) return alert("אין מספיק מלאי במחסן!");
-
-                db.collection("inventory").doc(invId).update({ quantity: item.quantity - qty });
-                const proj = projects.find(p => p.id === materialsModal.id);
-                const currentMaterials = proj.allocatedMaterials || [];
-                db.collection("projects").doc(proj.id).update({
-                    allocatedMaterials: [...currentMaterials, { id: Date.now().toString(), name: item.name, quantity: qty, date: new Date().toISOString(), status: 'pending' }]
-                });
-                alert("החומר שויך בהצלחה ונשלחה משימה לנהג!");
-                setMaterialsModal(null);
-            };
-
-            const markMaterialDelivered = (projId, matId) => {
-                const proj = projects.find(p => p.id === projId);
-                const updatedMaterials = proj.allocatedMaterials.map(m => m.id === matId ? { ...m, status: 'delivered', deliveryDate: new Date().toISOString() } : m);
-                db.collection("projects").doc(projId).update({ allocatedMaterials: updatedMaterials });
-            };
-
-            const confirmFinishProject = (e) => {
-                e.preventDefault();
-                let phone = e.target.phone.value.replace(/\D/g, ''); 
-                if (phone.startsWith('0')) phone = '972' + phone.substring(1);
-                
-                const proj = projects.find(p => p.id === finishModal.id);
-                db.collection("projects").doc(finishModal.id).update({ isFinished: true, finishedAt: new Date().toISOString() });
-                
-                const message = `שלום,\n\nאנו שמחים לעדכן כי הפרויקט ${finishModal.name} סומן כ"הסתיים" במערכת.\nמצורף בזה דוח הסטטוס המסכם של הפרויקט.\n\nבברכה,\n${portalName}`;
-                let waLink = `https://wa.me/?text=${encodeURIComponent(message)}`;
-                if (phone && phone.length > 8) waLink = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-                
-                exportPDF(proj, () => { window.location.href = waLink; });
-                setFinishModal(null);
-            };
-
+            const markMaterialDelivered = (projId, matId) => { const proj=projects.find(p=>p.id===projId); const updated=proj.allocatedMaterials.map(m=>m.id===matId?{...m,status:'delivered',deliveryDate:new Date().toISOString()}:m); db.collection("projects").doc(projId).update({allocatedMaterials:updated}); };
+            const confirmFinishProject = (e) => { e.preventDefault(); let phone=e.target.phone.value.replace(/\D/g,''); if(phone.startsWith('0')) phone='972'+phone.substring(1); const proj=projects.find(p=>p.id===finishModal.id); db.collection("projects").doc(finishModal.id).update({isFinished:true,finishedAt:new Date().toISOString()}); const message=`שלום,\n\nאנו שמחים לעדכן כי הפרויקט ${finishModal.name} סומן כ"הסתיים" במערכת.\n\nבברכה,\n${portalName}`; let waLink=`https://wa.me/?text=${encodeURIComponent(message)}`; if(phone&&phone.length>8) waLink=`https://wa.me/${phone}?text=${encodeURIComponent(message)}`; window.location.href=waLink; setFinishModal(null); };
             const deleteProject = (projId) => { if (window.confirm("מחיקה לצמיתות!! להמשיך?")) db.collection("projects").doc(projId).delete(); };
             const handleFinanceChange = (projId, field, value) => { db.collection("projects").doc(projId).update({ [field]: Number(value) }); };
-
-            const filteredProjects = projects.filter(p => {
-                const searchStr = String(searchTerm || "");
-                const matchesSearch = String(p.name || "").includes(searchStr) || String(p.address || "").includes(searchStr);
-                if (!matchesSearch) return false;
-                if (currentUser && currentUser.role === 'worker') return Array.isArray(p.assignedUsers) && p.assignedUsers.includes(currentUser.id);
-                return true; 
-            });
-
+            
+            const filteredProjects = projects.filter(p => { const searchStr=String(searchTerm||""); const matchesSearch=String(p.name||"").includes(searchStr)||String(p.address||"").includes(searchStr); if(!matchesSearch) return false; if(currentUser&&currentUser.role==='worker') return Array.isArray(p.assignedUsers)&&p.assignedUsers.includes(currentUser.id); return true; });
             const activeProjectsList = filteredProjects.filter(p => !p.isFinished);
             const finishedProjectsList = filteredProjects.filter(p => p.isFinished);
             const roleLabels = { admin: "מנהל מערכת", warehouse: "מנהל מחסן", driver: "נהג חלוקה", worker: "צוות שטח" };
 
-            const getCheckedValues = (formElement, inputName) => {
-                const inputs = formElement[inputName]; let assigned = [];
-                if (inputs) {
-                    if (inputs.length === undefined) { if (inputs.checked) assigned.push(inputs.value); } 
-                    else { assigned = Array.from(inputs).filter(i => i.checked).map(i => i.value); }
-                }
-                return assigned;
-            };
+            const getCheckedValues = (formElement, inputName) => { const inputs=formElement[inputName]; let assigned=[]; if(inputs){ if(inputs.length===undefined){ if(inputs.checked) assigned.push(inputs.value); } else { assigned=Array.from(inputs).filter(i=>i.checked).map(i=>i.value); } } return assigned; };
 
             if (!currentUser) {
                 return (
@@ -327,7 +401,6 @@
                         .theme-border { border-color: var(--theme-color) !important; }
                     `}</style>
 
-                    {/* תפריט עליון מותאם למובייל - גלילה אופקית מוסתרת */}
                     <header className="glass px-4 py-3 flex flex-col md:flex-row justify-between items-center sticky top-0 z-30 border-b border-white/5 gap-3 shadow-md">
                         <div className="flex w-full justify-between items-center md:w-auto md:border-l border-white/10 pl-6">
                             <div className="flex items-center gap-3">
@@ -344,19 +417,26 @@
                         </div>
 
                         <nav className="flex gap-2 w-full overflow-x-auto hide-scroll pb-1 md:w-auto md:pb-0">
-                            <button onClick={() => setActiveTab("board")} className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'board' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📊 לוח עבודה</button>
-                            <button onClick={() => setActiveTab("archive")} className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'archive' ? 'bg-slate-700 text-white shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📁 ארכיון</button>
+                            <button onClick={() => setActiveTab("board")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'board' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📊 עבודה</button>
+                            
+                            {currentUser.role === 'admin' && (
+                                <>
+                                    <button onClick={() => setActiveTab("attendance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'attendance' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📍 נוכחות</button>
+                                    <button onClick={() => setActiveTab("archive")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'archive' ? 'bg-slate-700 text-white shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📁 ארכיון</button>
+                                </>
+                            )}
+                            
                             {(currentUser.role === 'admin' || currentUser.role === 'driver') && (
-                                <button onClick={() => setActiveTab("deliveries")} className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'deliveries' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>🚚 חלוקה</button>
+                                <button onClick={() => setActiveTab("deliveries")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'deliveries' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>🚚 חלוקה</button>
                             )}
                             {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
-                                <button onClick={() => setActiveTab("inventory")} className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'inventory' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📦 מחסן</button>
+                                <button onClick={() => setActiveTab("inventory")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'inventory' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📦 מחסן</button>
                             )}
                             {currentUser.role === 'admin' && (
                                 <>
-                                    <button onClick={() => setActiveTab("finance")} className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'finance' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>💰 כספים</button>
-                                    <button onClick={() => setActiveTab("users")} className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'users' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>👥 משתמשים</button>
-                                    <button onClick={() => setActiveTab("settings")} className={`whitespace-nowrap px-5 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'settings' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>⚙️ הגדרות</button>
+                                    <button onClick={() => setActiveTab("finance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'finance' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>💰 כספים</button>
+                                    <button onClick={() => setActiveTab("users")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'users' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>👥 משתמשים</button>
+                                    <button onClick={() => setActiveTab("settings")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'settings' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>⚙️ הגדרות</button>
                                 </>
                             )}
                         </nav>
@@ -369,13 +449,50 @@
 
                     <main className="flex-1 p-3 md:p-8">
                         
+                        {activeTab === "attendance" && currentUser.role === 'admin' && (
+                            <div className="animate-fade-in max-w-5xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-blue-500">
+                                <h2 className="text-2xl md:text-3xl font-black text-white mb-2">📍 דוח נוכחות ומיקומים</h2>
+                                <p className="text-slate-400 text-sm mb-6">מציג את הדיווחים האחרונים של אנשי השטח, מתי ולמה הם לחצו.</p>
+                                
+                                <div className="overflow-x-auto bg-slate-900 rounded-2xl border border-white/10">
+                                    <table className="w-full text-right text-sm">
+                                        <thead>
+                                            <tr className="bg-slate-800 text-slate-300">
+                                                <th className="p-4 font-bold">שם העובד</th>
+                                                <th className="p-4 font-bold">פעולה במערכת</th>
+                                                <th className="p-4 font-bold">תאריך ושעה</th>
+                                                <th className="p-4 font-bold text-center">מיקום (מפה)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {attendanceLogs.length === 0 && <tr><td colSpan="4" className="text-center p-6 text-slate-500">אין דיווחים עדיין.</td></tr>}
+                                            {attendanceLogs.map(log => (
+                                                <tr key={log.id} className="border-b border-white/5 hover:bg-white/5">
+                                                    <td className="p-4 font-bold text-white">👤 {log.userName}</td>
+                                                    <td className="p-4 text-emerald-400">{log.action}</td>
+                                                    <td className="p-4 text-slate-400 dir-ltr text-right">{new Date(log.timestamp).toLocaleString('he-IL')}</td>
+                                                    <td className="p-4 text-center">
+                                                        {log.lat && log.lng ? (
+                                                            <a href={`https://maps.google.com/?q=${log.lat},${log.lng}`} target="_blank" className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs inline-block shadow-lg">🗺️ פתח מפה</a>
+                                                        ) : (
+                                                            <span className="text-red-400 text-xs font-bold">ללא אישור מיקום</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
                         {activeTab === "board" && (
                             <div className="animate-fade-in max-w-[1600px] mx-auto">
                                 <div className="mb-6">
                                     <input type="text" placeholder="🔍 חפש פרויקט..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="w-full md:w-80 p-4 rounded-xl bg-slate-900 border border-slate-700 text-white outline-none focus:border-blue-500 font-bold shadow-sm" />
                                 </div>
 
-                                {/* תצוגת דסקטופ (טבלה רחבה) */}
+                                {/* דסקטופ */}
                                 <div className="hidden lg:block table-container bg-[#1e293b]/50 shadow-2xl mb-8">
                                     <table className="w-full text-right">
                                         <thead>
@@ -401,7 +518,7 @@
                                                             <div className="font-black text-white text-lg flex items-center gap-2">{proj.name}</div>
                                                             <div className="flex items-center gap-2 mt-1 mb-1">
                                                                 <span className="text-xs text-slate-400">📍 {proj.address}</span>
-                                                                <a href={`waze://?q=${encodeURIComponent(proj.address)}&navigate=yes`} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition">🚗 Waze</a>
+                                                                <a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition">🚗 Waze</a>
                                                             </div>
                                                             <div onClick={() => currentUser.role === 'admin' ? setAssignModal({ id: proj.id, name: proj.name, users: Array.isArray(proj.assignedUsers) ? proj.assignedUsers : [] }) : null} className={`bg-slate-800 px-2 py-1 rounded text-[10px] font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer hover:bg-slate-700 text-blue-300' : 'text-slate-300'}`}>👥 צוות: {teamNames} {currentUser.role === 'admin' && '✏️'}</div>
                                                         </td>
@@ -419,12 +536,11 @@
                                                         </td>
                                                         <td className="text-center">
                                                             <div className="flex justify-center gap-2">
-                                                                {currentUser.role === 'admin' && <button onClick={() => exportPDF(proj)} className="p-2 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-lg transition text-lg">📄</button>}
-                                                                <button onClick={() => setMaterialsModal(proj)} className="p-2 bg-slate-800 hover:bg-amber-600 rounded-lg transition border border-white/5 text-lg">📦</button>
+                                                                <button onClick={() => setPhotosModal(proj)} className="p-2 bg-slate-800 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg transition border border-white/5 text-lg">📷</button>
+                                                                <button onClick={() => setMaterialsModal(proj)} className="p-2 bg-slate-800 hover:bg-amber-600 text-amber-300 hover:text-white rounded-lg transition border border-white/5 text-lg">📦</button>
                                                                 {currentUser.role === 'admin' && (
                                                                     <>
                                                                         <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="p-2 bg-emerald-600/20 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded-lg transition text-lg">✅</button>
-                                                                        <button onClick={() => deleteProject(proj.id)} className="p-2 bg-red-600/20 text-red-500 hover:bg-red-600 hover:text-white rounded-lg transition text-lg">🗑️</button>
                                                                     </>
                                                                 )}
                                                             </div>
@@ -436,13 +552,13 @@
                                     </table>
                                 </div>
 
-                                {/* תצוגת מובייל (כרטיסיות נוחות לטלפון) */}
+                                {/* מובייל */}
                                 <div className="block lg:hidden space-y-5 pb-10">
                                     {activeProjectsList.length === 0 && <div className="text-center py-10 text-slate-500 bg-slate-900 rounded-2xl border border-white/5">אין פרויקטים פעילים.</div>}
                                     {activeProjectsList.map(proj => {
                                         const doneCount = stages.filter(s => proj.statuses && proj.statuses[s.id] === 3).length;
                                         const progress = stages.length ? Math.round((doneCount / stages.length) * 100) : 0;
-                                        const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'לא שובץ מתוך רשימה';
+                                        const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'לא שובץ';
 
                                         return (
                                             <div key={proj.id} className="bg-slate-900/80 p-5 rounded-[2rem] border border-white/10 shadow-xl relative overflow-hidden">
@@ -451,7 +567,7 @@
                                                 <div className="pr-3">
                                                     <div className="flex justify-between items-start mb-2">
                                                         <h3 className="font-black text-white text-xl leading-tight">{proj.name}</h3>
-                                                        <a href={`waze://?q=${encodeURIComponent(proj.address)}&navigate=yes`} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg px-3 py-1.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1">🚗 Waze</a>
+                                                        <a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg px-3 py-1.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1">🚗 Waze</a>
                                                     </div>
                                                     
                                                     <p className="text-sm text-slate-400 mb-3">📍 {proj.address}</p>
@@ -460,7 +576,6 @@
                                                         <span className="text-slate-400">צוות:</span> <span className="text-white">{teamNames}</span> {currentUser.role === 'admin' && '✏️'}
                                                     </div>
 
-                                                    {/* קוביות הסטטוסים לנייד */}
                                                     <div className="grid grid-cols-2 gap-3 mb-5">
                                                         {stages.map(stage => {
                                                             const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
@@ -482,12 +597,12 @@
                                                     </div>
 
                                                     <div className="flex justify-between items-center border-t border-white/5 pt-4">
-                                                        <button onClick={() => setMaterialsModal(proj)} className="bg-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold flex gap-2 items-center">📦 חומרים</button>
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => setPhotosModal(proj)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold flex gap-2 items-center">📷 תמונות</button>
+                                                            <button onClick={() => setMaterialsModal(proj)} className="bg-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold flex gap-2 items-center">📦 חומרים</button>
+                                                        </div>
                                                         {currentUser.role === 'admin' && (
-                                                            <div className="flex gap-2">
-                                                                <button onClick={() => exportPDF(proj)} className="w-10 h-10 flex items-center justify-center bg-indigo-600/20 text-indigo-400 rounded-xl text-lg font-bold">📄</button>
-                                                                <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="w-10 h-10 flex items-center justify-center bg-emerald-600/20 text-emerald-500 rounded-xl text-lg font-bold">✅</button>
-                                                            </div>
+                                                            <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="w-10 h-10 flex items-center justify-center bg-emerald-600/20 text-emerald-500 rounded-xl text-lg font-bold">✅</button>
                                                         )}
                                                     </div>
                                                 </div>
@@ -498,7 +613,7 @@
                             </div>
                         )}
 
-                        {activeTab === "archive" && (
+                        {activeTab === "archive" && currentUser.role === 'admin' && (
                             <div className="animate-fade-in max-w-5xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-slate-500">
                                 <h2 className="text-2xl md:text-3xl font-black text-white mb-2">📁 פרויקטים בארכיון</h2>
                                 <p className="text-slate-400 text-sm mb-6">יומן פרויקטים שנסגרו והסתיימו בהצלחה.</p>
@@ -574,16 +689,23 @@
                         {activeTab === "deliveries" && (
                             <div className="max-w-4xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-cyan-500 animate-fade-in">
                                 <h2 className="text-2xl md:text-3xl font-black text-white mb-2">🚚 משימות חלוקה</h2>
-                                <p className="text-slate-400 text-sm mb-6">אספקה שממתינה לשינוע לאתרים.</p>
+                                <p className="text-slate-400 text-sm mb-6">בקשות להזמנות שטרם סופקו לפרויקטים השונים.</p>
                                 <div className="grid gap-4">
                                     {projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending').map(m => (
                                         <div key={`${p.id}-${m.id}`} className="bg-slate-900 p-5 rounded-[2rem] flex flex-col md:flex-row justify-between items-start md:items-center border border-white/10 gap-4 shadow-lg">
                                             <div className="w-full">
                                                 <h3 className="font-black text-lg text-white mb-1">{p.name}</h3>
                                                 <p className="text-xs text-slate-400 mb-3">📍 {p.address}</p>
-                                                <div className="bg-amber-500/20 border border-amber-500/30 px-4 py-2 rounded-xl inline-block w-full md:w-auto text-center">
-                                                    <span className="text-amber-400 font-black text-lg text-center w-full block">📦 {m.quantity} x {m.name}</span>
+                                                <div className={`${m.name.includes("הזמנה מיוחדת") ? 'bg-purple-500/20 border-purple-500/30 text-purple-400' : 'bg-amber-500/20 border-amber-500/30 text-amber-400'} border px-4 py-2 rounded-xl inline-block w-full md:w-auto text-center`}>
+                                                    <span className="font-black text-lg text-center w-full block">📦 {m.quantity} x {m.name}</span>
                                                 </div>
+                                                {/* אם יש חתימה, מציג אותה */}
+                                                {m.signature && (
+                                                    <div className="mt-3 bg-slate-800 p-2 rounded-lg text-xs flex justify-between items-center border border-white/5">
+                                                        <div><span className="text-slate-400">אושר ע"י:</span> <span className="text-white font-bold">{m.signature.name}</span></div>
+                                                        <div className="text-[10px] text-slate-500">{new Date(m.signature.date).toLocaleString('he-IL')}</div>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="flex gap-3 w-full md:w-auto mt-2 md:mt-0">
                                                 <a href={`waze://?q=${encodeURIComponent(p.address)}&navigate=yes`} className="bg-slate-800 hover:bg-blue-600 text-white px-4 py-3 rounded-xl font-bold transition flex-1 text-center shadow-md">🚗 Waze</a>
@@ -591,6 +713,9 @@
                                             </div>
                                         </div>
                                     )))}
+                                    {projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending')).length === 0 && (
+                                        <div className="text-center text-slate-500 py-10 bg-slate-900/50 rounded-2xl border border-white/5">אין בקשות פתוחות כרגע. עבודה טובה!</div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -599,7 +724,7 @@
                             <div className="max-w-5xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-amber-500 animate-fade-in">
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 md:mb-8 gap-4">
                                     <h2 className="text-2xl md:text-3xl font-black text-white">📦 מלאי מחסן</h2>
-                                    <button onClick={() => setShowAddInventory(true)} className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold w-full md:w-auto shadow-lg">➕ פריט חדש</button>
+                                    <button onClick={() => setShowAddInventory(true)} className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold w-full md:w-auto shadow-lg active:scale-95 transition">➕ פריט חדש למחסן</button>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                     {inventory.map(item => (
@@ -619,12 +744,11 @@
                             </div>
                         )}
 
+                        {/* --- שאר הלשוניות (משתמשים, כספים, הגדרות) נשארות כרגיל --- */}
                         {activeTab === "users" && currentUser.role === 'admin' && (
                             <div className="max-w-4xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-purple-500 animate-fade-in">
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                                    <div>
-                                        <h2 className="text-2xl md:text-3xl font-black text-white">👥 משתמשים</h2>
-                                    </div>
+                                    <div><h2 className="text-2xl md:text-3xl font-black text-white">👥 משתמשים</h2></div>
                                     <button onClick={() => { setShowAddUser(true); setNewUserRole("worker"); }} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold w-full md:w-auto shadow-lg">➕ עובד חדש</button>
                                 </div>
                                 <div className="space-y-4">
@@ -644,7 +768,7 @@
                                 </div>
                             </div>
                         )}
-                        
+
                         {activeTab === "finance" && currentUser.role === 'admin' && (
                             <div className="max-w-[1200px] mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-emerald-500 animate-fade-in">
                                 <h2 className="text-2xl md:text-3xl font-black text-white mb-2">💰 כספים וגבייה</h2>
@@ -653,7 +777,6 @@
                                     {activeProjectsList.map(proj => {
                                         const budget = proj.budget || 0; const pAdv = proj.payAdvance || 0; const pA = proj.payStageA || 0; const pB = proj.payStageB || 0; const pFinal = proj.payFinal || 0;
                                         const totalPaid = pAdv + pA + pB + pFinal; const debt = budget - totalPaid;
-                                        
                                         return (
                                             <div key={proj.id} className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 shadow-xl">
                                                 <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-5 border-b border-white/5 pb-4 gap-4">
@@ -669,7 +792,6 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                {/* תצוגת רשת שעוברת לטור 1 בטלפון ו-5 טורים במחשב */}
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
                                                     <div className="bg-slate-800 p-2 rounded-xl border border-blue-500/30">
                                                         <label className="text-[10px] text-blue-400 font-bold uppercase block mb-1 pl-1">תקציב (₪)</label>
@@ -705,14 +827,8 @@
                                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     <div className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 lg:col-span-3 grid md:grid-cols-2 gap-5 shadow-lg">
                                         <h3 className="text-lg font-black text-white md:col-span-2">🏢 הגדרות חברה ועסק</h3>
-                                        <div>
-                                            <label className="text-xs text-slate-400 block mb-1 font-bold">שם החברה</label>
-                                            <input value={portalName} onChange={e=>setPortalName(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none font-bold" />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs text-slate-400 block mb-1 font-bold">מייל המשרד</label>
-                                            <input type="email" value={officeEmail} onChange={e=>setOfficeEmail(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none font-bold dir-ltr text-right" />
-                                        </div>
+                                        <div><label className="text-xs text-slate-400 block mb-1 font-bold">שם החברה</label><input value={portalName} onChange={e=>setPortalName(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none font-bold" /></div>
+                                        <div><label className="text-xs text-slate-400 block mb-1 font-bold">מייל המשרד</label><input type="email" value={officeEmail} onChange={e=>setOfficeEmail(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none font-bold dir-ltr text-right" /></div>
                                     </div>
 
                                     <div className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 shadow-lg">
@@ -728,10 +844,7 @@
                                             <div>
                                                 <label className="text-xs text-slate-400 block mb-1 font-bold">גופן מערכת</label>
                                                 <select value={appFont} onChange={e=>setAppFont(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none text-center">
-                                                    <option value="system-ui">ברירת מחדל (System)</option>
-                                                    <option value="Arial">Arial (אריאל)</option>
-                                                    <option value="Tahoma">Tahoma (טאהומה)</option>
-                                                    <option value="Heebo">Heebo (מודרני)</option>
+                                                    <option value="system-ui">ברירת מחדל</option><option value="Arial">אריאל</option><option value="Tahoma">טאהומה</option><option value="Heebo">Heebo</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -769,9 +882,192 @@
                         
                     </main>
 
-                    {/* מודאלים מעוצבים למובייל (כרטיסיה עולה מלמטה/מרכזית) */}
+                    {/* --- מודאלים --- */}
+                    
+                    {/* חלון הוספת פריט למחסן שחזר! */}
+                    {showAddInventory && (
+                        <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
+                            <form onSubmit={e => {
+                                e.preventDefault();
+                                db.collection("inventory").add({
+                                    name: e.target.n.value, category: e.target.c.value, quantity: Number(e.target.q.value)
+                                }).then(() => setShowAddInventory(false));
+                            }} className="bg-[#1e293b] w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-amber-500">
+                                <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-4 md:hidden"></div>
+                                <h2 className="text-white text-2xl font-black mb-5">פריט חדש במחסן</h2>
+                                
+                                <label className="text-xs text-slate-400 font-bold block mb-1">שם הפריט</label>
+                                <input name="n" placeholder="למשל: צינור 50 מ''מ" className="w-full p-4 bg-slate-900 text-white rounded-xl mb-4 outline-none font-bold" required />
+                                
+                                <label className="text-xs text-slate-400 font-bold block mb-1">קטגוריה</label>
+                                <input name="c" placeholder="למשל: צנרת, כימיקלים" className="w-full p-4 bg-slate-900 text-white rounded-xl mb-4 outline-none font-bold" required />
+                                
+                                <label className="text-xs text-slate-400 font-bold block mb-1">כמות התחלתית להזנה</label>
+                                <input name="q" type="number" defaultValue="0" min="0" className="w-full p-4 bg-slate-900 text-white rounded-xl mb-6 outline-none dir-ltr text-right font-black text-xl" required />
+                                
+                                <div className="flex flex-col md:flex-row gap-3">
+                                    <button type="submit" className="w-full bg-amber-600 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">הוסף למלאי</button>
+                                    <button type="button" onClick={() => setShowAddInventory(false)} className="w-full text-slate-400 font-bold py-3 active:bg-white/5 rounded-xl">ביטול</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
 
-                    {/* מודאל שיוך עובדים */}
+                    {/* חלון ניהול חומרים מפוצל (מלאי / בקשה מיוחדת) */}
+                    {materialsModal && !materialSignData && (
+                        <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 md:p-4">
+                            <div className="bg-[#1e293b] w-full h-[90vh] md:h-auto md:max-h-[90vh] md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-amber-500">
+                                <div className="flex justify-between items-center mb-1 shrink-0">
+                                    <h2 className="text-white text-xl md:text-2xl font-black">ניהול חומרים וציוד</h2>
+                                    <button onClick={() => setMaterialsModal(null)} className="text-slate-400 font-bold text-xl w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center">X</button>
+                                </div>
+                                <p className="text-amber-400 text-sm mb-6 font-bold shrink-0">{materialsModal.name}</p>
+
+                                {/* כפתורי טאבים */}
+                                <div className="flex gap-2 mb-6 shrink-0 bg-slate-900 p-1.5 rounded-xl border border-white/5">
+                                    <button onClick={() => setMaterialReqType("stock")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${materialReqType === 'stock' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400'}`}>ממלאי קיים</button>
+                                    <button onClick={() => setMaterialReqType("special")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${materialReqType === 'special' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400'}`}>בקשה מיוחדת</button>
+                                </div>
+
+                                <form onSubmit={handleMaterialSubmit} className="flex-1 overflow-y-auto flex flex-col gap-5 pr-1">
+                                    {materialReqType === "stock" ? (
+                                        <div className="animate-fade-in space-y-4">
+                                            <div>
+                                                <label className="text-xs text-slate-400 font-bold mb-2 block">בחר פריט שקיים כרגע במחסן:</label>
+                                                <select name="itemId" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold border border-transparent focus:border-amber-500" required>
+                                                    <option value="">-- לחץ לפתיחת הרשימה --</option>
+                                                    {inventory.map(i => <option key={i.id} value={i.id}>{i.name} (במלאי: {i.quantity})</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-slate-400 font-bold mb-2 block">כמות מבוקשת לשיוך:</label>
+                                                <input name="qty" type="number" min="1" defaultValue="1" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center font-black text-xl border border-transparent focus:border-amber-500" required />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="animate-fade-in space-y-4">
+                                            <div className="bg-purple-500/10 border border-purple-500/20 p-3 rounded-xl mb-2">
+                                                <p className="text-purple-300 text-xs font-bold leading-relaxed">השתמש באפשרות זו רק אם הציוד לא מופיע ברשימת המחסן ויש צורך להזמין או לקנות אותו במיוחד.</p>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-purple-400 font-bold mb-2 block">תיאור הציוד החסר (שדה חובה!):</label>
+                                                <textarea name="specialText" rows="3" placeholder="פרט איזה ציוד או חומר נדרש, מידות, סוג..." className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none resize-none border border-purple-500/30 focus:border-purple-500 font-bold" required></textarea>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-slate-400 font-bold mb-2 block">כמות להזמנה:</label>
+                                                <input name="qty" type="number" min="1" defaultValue="1" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center font-black text-xl border border-transparent focus:border-purple-500" required />
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    <button type="submit" className={`w-full text-white py-4 rounded-xl font-black text-lg mt-auto shrink-0 shadow-lg active:scale-95 transition flex items-center justify-center gap-2 ${materialReqType === 'stock' ? 'bg-amber-600' : 'bg-purple-600'}`}>
+                                        {currentUser.role === 'admin' ? 'שייך פריט מיידית' : 'המשך לחתימה לאישור הבקשה ✍️'}
+                                    </button>
+                                </form>
+
+                                {/* תצוגת חומרים שכבר קיימים */}
+                                <div className="mt-6 border-t border-white/10 pt-4 shrink-0">
+                                    <h4 className="text-xs text-slate-400 font-bold mb-3 flex items-center justify-between">
+                                        <span>ציוד שכבר שויך לפרויקט:</span>
+                                        <span className="bg-slate-800 px-2 py-1 rounded text-white">{(materialsModal.allocatedMaterials || []).length}</span>
+                                    </h4>
+                                    <div className="max-h-32 overflow-y-auto space-y-2 pr-1">
+                                        {(materialsModal.allocatedMaterials || []).length === 0 && <p className="text-xs text-slate-500 text-center py-4">אין ציוד משויך עדיין.</p>}
+                                        {(materialsModal.allocatedMaterials || []).map(m => (
+                                            <div key={m.id} className="flex justify-between items-center p-3 bg-slate-900 rounded-xl border border-white/5">
+                                                <div className="flex flex-col">
+                                                    <span className={`font-bold text-sm ${m.name.includes("הזמנה מיוחדת") ? 'text-purple-400' : 'text-white'}`}>{m.name.replace("הזמנה מיוחדת: ", "")}</span>
+                                                    {m.name.includes("הזמנה מיוחדת") && <span className="text-[10px] text-purple-500 font-bold uppercase">הזמנה מיוחדת</span>}
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-white font-black bg-slate-800 px-2 py-1 rounded">x{m.quantity}</span>
+                                                    <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${m.status==='delivered'?'bg-emerald-500/20 text-emerald-400':'bg-amber-500/20 text-amber-400'}`}>{m.status==='delivered'?'סופק':'ממתין'}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* חלון חתימה לאישור בקשת חומר (לעובדים) */}
+                    {materialSignData && (
+                        <div className="fixed inset-0 bg-slate-900/95 flex flex-col justify-end md:justify-center items-center z-[60] animate-fade-in md:p-4">
+                            <div className="bg-[#1e293b] w-full h-[90vh] md:h-auto md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-amber-500">
+                                <h2 className="text-white text-center text-2xl font-black mb-1 shrink-0">אישור מורשה לציוד</h2>
+                                <p className="text-center text-slate-400 text-sm mb-5 shrink-0">בקשה: <span className="text-white font-bold bg-white/10 px-2 py-0.5 rounded">{materialSignData.itemName}</span> (כמות: {materialSignData.qty})</p>
+                                
+                                <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                                    <input value={signerName} onChange={e=>setSignerName(e.target.value)} placeholder="שם מלא (חותם/מאשר)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold text-lg focus:ring-2 focus:ring-amber-500" required />
+                                    <input type="tel" maxLength="9" value={signerId} onChange={e=>setSignerId(e.target.value.replace(/\D/g,''))} placeholder="תעודת זהות (9 ספרות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center text-xl font-black tracking-widest focus:ring-2 focus:ring-amber-500" required />
+                                    <div className="flex-1 flex flex-col min-h-[200px]">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <label className="text-xs text-slate-400 font-bold">חתימת הלקוח / מנהל בשטח:</label>
+                                            <button onClick={() => sigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button>
+                                        </div>
+                                        <div className="flex-1 w-full bg-white rounded-2xl border-4 border-amber-500/50 overflow-hidden touch-none relative">
+                                            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0">
+                                    <button onClick={confirmMaterialSignature} className="flex-1 bg-amber-600 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">אשר בקשה ✓</button>
+                                    <button onClick={() => {setMaterialSignData(null); setMaterialsModal(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* חלון גלריית תמונות */}
+                    {photosModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 flex flex-col z-50 animate-fade-in md:p-8">
+                            <div className="bg-[#1e293b] w-full h-full md:rounded-[2rem] flex flex-col shadow-2xl overflow-hidden" style={{ borderTop: `6px solid ${appColor}` }}>
+                                
+                                <div className="p-4 md:p-6 border-b border-white/10 flex justify-between items-center bg-slate-800/50 shrink-0">
+                                    <div>
+                                        <h2 className="text-white text-xl md:text-2xl font-black">📷 תיעוד מהשטח</h2>
+                                        <p className="text-slate-400 text-sm font-bold mt-1">{photosModal.name}</p>
+                                    </div>
+                                    <button onClick={() => setPhotosModal(null)} className="w-10 h-10 bg-slate-800 rounded-full text-white font-bold text-xl flex items-center justify-center">X</button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-900/50">
+                                    {currentProjectPhotos.length === 0 && !isUploading && (
+                                        <div className="h-full flex flex-col items-center justify-center text-slate-500">
+                                            <span className="text-6xl mb-4 opacity-20">📷</span>
+                                            <p className="font-bold">אין תמונות לפרויקט זה עדיין.</p>
+                                        </div>
+                                    )}
+                                    
+                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                        {currentProjectPhotos.map(photo => (
+                                            <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg">
+                                                <img src={photo.imageBase64} alt="תיעוד" className="w-full h-full object-cover" />
+                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+                                                    <p className="text-white text-xs font-bold">{photo.uploadedBy}</p>
+                                                    <p className="text-slate-300 text-[10px] dir-ltr text-right">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
+                                                </div>
+                                                {currentUser.role === 'admin' && (
+                                                    <button onClick={() => deletePhoto(photo.id)} className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg md:opacity-0 md:group-hover:opacity-100 transition-opacity">🗑️</button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="p-4 border-t border-white/10 bg-[#1e293b] shrink-0">
+                                    <label className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition shadow-lg cursor-pointer flex items-center justify-center gap-2">
+                                        {isUploading ? <span className="loader"></span> : "➕ העלה תמונה חדשה"}
+                                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={isUploading} />
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* מודאלים נוספים שניקינו מקודם (שיוך, עריכה, ווצאפ, סטטוס) - ללא שינוי, השארתי כאן כדי שהכל יעבוד */}
+
                     {assignModal && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={e => {
@@ -801,7 +1097,6 @@
                         </div>
                     )}
 
-                    {/* מודאל עריכת משתמש  */}
                     {editUserModal && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={e => { 
@@ -832,7 +1127,6 @@
                         </div>
                     )}
 
-                    {/* חלון סיום פרויקט ווצאפ למובייל */}
                     {finishModal && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={confirmFinishProject} className="bg-[#1e293b] w-full md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-emerald-500">
@@ -852,7 +1146,6 @@
                                 
                                 <div className="flex flex-col md:flex-row gap-3">
                                     <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition flex items-center justify-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.1.824zM20.056 3.904c-2.148-2.15-5.004-3.337-8.046-3.337-6.273 0-11.378 5.106-11.378 11.378 0 2.004.524 3.96 1.518 5.688l-1.616 5.903 6.039-1.583c1.667.906 3.551 1.385 5.434 1.385h.004c6.27 0 11.375-5.105 11.375-11.374 0-3.038-1.182-5.895-3.33-8.06z"/></svg>
                                         סגור ושלח ווצאפ
                                     </button>
                                     <button type="button" onClick={() => setFinishModal(null)} className="w-full text-slate-400 font-bold py-3">ביטול</button>
@@ -861,7 +1154,6 @@
                         </div>
                     )}
 
-                    {/* בחירת סטטוס למובייל */}
                     {statusModal && !signRequirement && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4" onClick={() => setStatusModal(null)}>
                             <div className="bg-[#1e293b] w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl" style={{ borderTop: `6px solid ${appColor}` }} onClick={e=>e.stopPropagation()}>
@@ -883,12 +1175,11 @@
                         </div>
                     )}
 
-                    {/* חתימה דיגיטלית - מותאם למסכי מגע קטנים */}
                     {signRequirement && (
                         <div className="fixed inset-0 bg-slate-900/95 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <div className="bg-[#1e293b] w-full h-[90vh] md:h-auto md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col" style={{ borderTop: `6px solid ${appColor}` }}>
                                 <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-4 md:hidden shrink-0"></div>
-                                <h2 className="text-white text-center text-2xl font-black mb-1 shrink-0">אישור סטטוס</h2>
+                                <h2 className="text-white text-center text-2xl font-black mb-1 shrink-0">אישור סטטוס ומיקום</h2>
                                 <p className="text-center text-slate-400 text-sm mb-4 shrink-0">מעבר לסטטוס <span className="text-white font-bold bg-white/10 px-2 py-0.5 rounded">{signRequirement.newStatus}</span></p>
                                 
                                 <div className="flex-1 overflow-y-auto space-y-4 pr-1">
@@ -899,11 +1190,11 @@
                                             <label className="text-xs text-slate-400 font-bold">חתימת הלקוח / מנהל עבודה:</label>
                                             <button onClick={() => sigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button>
                                         </div>
-                                        {/* הקנבס תופס את שאר המקום כדי להיות גדול מספיק לחתימה בנייד */}
                                         <div className="flex-1 w-full bg-white rounded-2xl border-4 border-blue-500/50 overflow-hidden touch-none relative">
                                             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" />
                                         </div>
                                     </div>
+                                    <p className="text-[10px] text-center text-slate-500 mt-2">📍 המיקום הנוכחי שלך יישמר במערכת בלחיצה על אישור.</p>
                                 </div>
                                 <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0">
                                     <button onClick={confirmSignatureAndStatus} className="flex-1 text-white py-4 rounded-xl font-black text-lg theme-bg active:scale-95 transition">חתום ואשר ✓</button>
@@ -913,7 +1204,6 @@
                         </div>
                     )}
 
-                    {/* יצירת עובד חדש */}
                     {showAddUser && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={e => { 
@@ -942,7 +1232,6 @@
                         </div>
                     )}
 
-                    {/* יצירת פרויקט חדש */}
                     {showAddProject && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={e => { 
