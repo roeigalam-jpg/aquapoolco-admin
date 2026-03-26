@@ -44,8 +44,6 @@
         .dir-ltr { direction: ltr; } .hide-scroll::-webkit-scrollbar { display: none; } .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
         .loader { border: 4px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; display: inline-block; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        /* תיקון לשכבות התפריט */
         header { z-index: 100 !important; position: sticky; top: 0; }
         nav button { position: relative; z-index: 110 !important; cursor: pointer; }
     </style>
@@ -225,7 +223,7 @@
                 } else {
                     const updated = proj.allocatedMaterials.filter(m => m.id !== mat.id);
                     db.collection("projects").doc(proj.id).update({ allocatedMaterials: updated });
-                    logAttendanceAndLocation(`ביטול חלוקה: ${mat.name}. סיבה: ${e.target.cancelReason.value}`); setDeliveryModal(null);
+                    logAttendanceAndLocation(`ביטול חלוקה: ${mat.name}. סיבה: ${e.target.cancelReason ? e.target.cancelReason.value : 'לא צוינה'}`); setDeliveryModal(null);
                 }
             };
 
@@ -266,15 +264,18 @@
                 setIsUploading(true);
                 const current = inventory.find(i=>i.id===inventoryItemModal.id);
                 db.collection("inventory").doc(inventoryItemModal.id).update({ quantity: current.quantity + Number(e.target.qty.value) }).then(() => {
-                    logAttendanceAndLocation(`מלאי: +${e.target.qty.value} ל${current.name}`); setInvModalTab("gallery"); setIsUploading(false);
+                    logAttendanceAndLocation(`מלאי: +${e.target.qty.value} ל${current.name}`); setInventoryItemModal(null); setInvModalTab("gallery"); setIsUploading(false);
                 });
             };
 
             const getCheckedValues = (form, name) => { const ins=form[name]; if(!ins) return []; return ins.length ? Array.from(ins).filter(i=>i.checked).map(i=>i.value) : (ins.checked ? [ins.value] : []); };
             const deleteAttendanceRecord = (id) => { if(window.confirm("למחוק?")) db.collection("attendance").doc(id).delete(); };
             const handleFinanceChange = (id, f, v) => db.collection("projects").doc(id).update({ [f]: Number(v) });
+            const alertStrictInventory = () => alert("שינוי מלאי רק דרך קליטה או שיוך לפרויקט!");
+
             const filteredProjects = projects.filter(p => !searchTerm || p.name.includes(searchTerm) || p.address.includes(searchTerm));
             const activeProjectsList = filteredProjects.filter(p => !p.isFinished);
+            const finishedProjectsList = filteredProjects.filter(p => p.isFinished);
             const roleLabels = { admin: "מנהל", warehouse: "מחסנאי", driver: "נהג", worker: "צוות שטח" };
 
             if (!currentUser) return (
@@ -316,14 +317,12 @@
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                     {activeProjectsList.map(proj => {
                                         const done = stages.filter(s => proj.statuses && proj.statuses[s.id] === 3).length; const progress = stages.length ? Math.round((done / stages.length) * 100) : 0;
-                                        const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'לא שובץ';
                                         return (
                                             <div key={proj.id} className="bg-slate-900/80 p-5 rounded-[2rem] border border-white/10 shadow-xl relative overflow-hidden">
                                                 <div className="absolute top-0 right-0 w-2 h-full theme-bg opacity-80"></div>
                                                 <div className="flex justify-between items-start mb-2">
                                                     <div>
-                                                        <h3 className="font-black text-white text-xl flex items-center gap-2">{proj.name} {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-white transition">✏️</button>}</h3>
-                                                        <p className="text-[10px] text-slate-500 mt-1">👥 {teamNames}</p>
+                                                        <h3 className="font-black text-white text-xl flex items-center gap-2">{proj.name} {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm">✏️</button>}</h3>
                                                     </div>
                                                     <a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600 px-3 py-1.5 rounded-xl text-xs font-black text-white">🚗 Waze</a>
                                                 </div>
@@ -349,12 +348,12 @@
                         {activeTab === "inventory" && (
                             <div className="max-w-6xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-amber-500 animate-fade-in">
                                 <div className="flex justify-between items-center mb-6">
-                                    <h2 className="text-2xl md:text-3xl font-black text-white">📦 מלאי מחסן</h2>
+                                    <h2 className="text-2xl font-black text-white">📦 מלאי מחסן</h2>
                                     <button onClick={() => setShowAddInventory(true)} className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg">➕ פריט חדש</button>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                     {inventory.map(item => (
-                                        <div key={item.id} className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 shadow-lg">
+                                        <div key={item.id} className="bg-slate-900 p-5 rounded-[2rem] border border-white/5">
                                             <h3 className="text-lg font-black text-white">{item.name}</h3>
                                             <div className="flex items-center justify-between bg-slate-800 p-3 rounded-2xl mt-4">
                                                 <button onClick={alertStrictInventory} className="w-10 h-10 bg-slate-700 rounded-xl font-black text-xl">-</button>
@@ -367,12 +366,168 @@
                                 </div>
                             </div>
                         )}
-                        
-                        {/* כאן יבואו שאר הטאבים כפי שהיו בקוד הקודם... */}
+
+                        {activeTab === "attendance" && (
+                             <div className="max-w-5xl mx-auto glass p-6 rounded-[2rem] animate-fade-in">
+                                <h2 className="text-2xl font-black text-white mb-6">📍 יומן נוכחות</h2>
+                                <div className="overflow-x-auto bg-slate-900 rounded-2xl border border-white/10">
+                                    <table className="w-full text-right text-sm">
+                                        <thead><tr className="bg-slate-800 text-slate-300"><th className="p-4 font-bold">שם</th><th className="p-4 font-bold">פעולה</th><th className="p-4 font-bold">זמן</th><th className="p-4 font-bold text-center">מיקום</th></tr></thead>
+                                        <tbody>
+                                            {attendanceLogs.map(log => (
+                                                <tr key={log.id} className="border-b border-white/5"><td className="p-4 font-bold text-white">👤 {log.userName}</td><td className="p-4 text-emerald-400">{log.action}</td><td className="p-4 text-slate-400 dir-ltr text-right">{new Date(log.timestamp).toLocaleString('he-IL')}</td><td className="p-4 text-center">{log.lat ? <a href={`https://www.google.com/maps?q=${log.lat},${log.lng}`} target="_blank" className="bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold">🗺️ מפה</a> : <span className="text-red-400">ללא מיקום</span>}</td></tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === "finance" && (
+                            <div className="max-w-5xl mx-auto glass p-6 rounded-[2rem] animate-fade-in">
+                                <h2 className="text-2xl font-black text-white mb-6">💰 כספים וגבייה</h2>
+                                <div className="space-y-4">
+                                    {activeProjectsList.map(p => (
+                                        <div key={p.id} className="bg-slate-900 p-4 rounded-2xl border border-white/5 grid md:grid-cols-4 gap-4">
+                                            <div className="md:col-span-4 font-black text-lg border-b border-white/5 pb-2">{p.name}</div>
+                                            <div><label className="text-[10px] text-slate-500 block">תקציב</label><input type="number" value={p.budget || 0} onChange={e=>handleFinanceChange(p.id, 'budget', e.target.value)} className="w-full bg-slate-800 p-2 rounded-lg" /></div>
+                                            <div><label className="text-[10px] text-slate-500 block">שולם א'</label><input type="number" value={p.payStageA || 0} onChange={e=>handleFinanceChange(p.id, 'payStageA', e.target.value)} className="w-full bg-slate-800 p-2 rounded-lg" /></div>
+                                            <div><label className="text-[10px] text-slate-500 block">שולם ב'</label><input type="number" value={p.payStageB || 0} onChange={e=>handleFinanceChange(p.id, 'payStageB', e.target.value)} className="w-full bg-slate-800 p-2 rounded-lg" /></div>
+                                            <div className="flex items-end text-emerald-400 font-bold">יתרה: ₪{(p.budget || 0) - ((p.payStageA || 0) + (p.payStageB || 0))}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === "settings" && (
+                             <div className="max-w-4xl mx-auto glass p-6 rounded-[2rem] animate-fade-in">
+                                <h2 className="text-2xl font-black text-white mb-6">⚙️ הגדרות</h2>
+                                <div className="space-y-6">
+                                    <div className="bg-slate-900 p-4 rounded-xl">
+                                        <label className="block mb-2 font-bold">שם הפורטל</label>
+                                        <input value={portalName} onChange={e=>setPortalName(e.target.value)} className="w-full bg-slate-800 p-3 rounded-lg" />
+                                    </div>
+                                    <button onClick={() => { db.collection("settings").doc("general").update({ portalName, appColor, appFont, officeEmail }); alert("נשמר!"); }} className="w-full theme-bg p-4 rounded-xl font-black">שמור הגדרות</button>
+                                </div>
+                             </div>
+                        )}
+
+                        {activeTab === "deliveries" && (
+                            <div className="max-w-4xl mx-auto glass p-6 rounded-[2rem] animate-fade-in">
+                                <h2 className="text-2xl font-black text-white mb-6">🚚 חלוקה</h2>
+                                {projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending').map(m => (
+                                    <div key={m.id} className="bg-slate-900 p-4 rounded-2xl mb-4 flex justify-between items-center border border-white/5">
+                                        <div><div className="font-black">{p.name}</div><div className="text-amber-500">{m.quantity} x {m.name}</div></div>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setDeliveryModal({ proj: p, mat: m, actionType: 'confirm' })} className="bg-emerald-600 px-4 py-2 rounded-lg font-bold">סופק ✓</button>
+                                            <button onClick={() => setDeliveryModal({ proj: p, mat: m, actionType: 'cancel' })} className="bg-red-600 px-4 py-2 rounded-lg font-bold">ביטול</button>
+                                        </div>
+                                    </div>
+                                )))}
+                            </div>
+                        )}
                     </main>
 
-                    {/* כל המודאלים (עריכה, הוספה, חתימות וכו') */}
-                    {/* ... (כל שאר המודאלים כפי שהיו) */}
+                    {/* מודאלים */}
+                    {inventoryItemModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <div className="bg-[#1e293b] w-full max-w-md rounded-[2rem] p-6 shadow-2xl">
+                                <h2 className="text-xl font-black mb-4">{inventoryItemModal.name}</h2>
+                                <div className="space-y-4">
+                                    <form onSubmit={handleInventoryReceive}>
+                                        <label className="block text-xs text-slate-400 mb-1">כמות לקליטה</label>
+                                        <input name="qty" type="number" className="w-full bg-slate-900 p-4 rounded-xl mb-4 text-center font-black text-2xl" required />
+                                        <div className="bg-white rounded-xl mb-4 h-32 relative"><canvas ref={invCanvasRef} className="absolute inset-0 w-full h-full" /></div>
+                                        <button type="submit" className="w-full bg-emerald-600 py-4 rounded-xl font-black">אשר קליטה</button>
+                                    </form>
+                                    <button onClick={() => setInventoryItemModal(null)} className="w-full text-slate-500 font-bold">סגור</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showAddProject && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <form onSubmit={e => { e.preventDefault(); db.collection("projects").add({ name: e.target.n.value, address: e.target.a.value, createdAt: firebase.firestore.Timestamp.now(), statuses: {}, isFinished: false }); setShowAddProject(false); }} className="bg-[#1e293b] w-full max-w-md rounded-[2rem] p-6">
+                                <h2 className="text-xl font-black mb-4">פרויקט חדש</h2>
+                                <input name="n" placeholder="שם פרויקט" className="w-full bg-slate-900 p-4 rounded-xl mb-4" required />
+                                <input name="a" placeholder="כתובת" className="w-full bg-slate-900 p-4 rounded-xl mb-6" required />
+                                <button type="submit" className="w-full theme-bg py-4 rounded-xl font-black">צור פרויקט</button>
+                                <button type="button" onClick={() => setShowAddProject(false)} className="w-full mt-2 text-slate-500">ביטול</button>
+                            </form>
+                        </div>
+                    )}
+
+                    {statusModal && (
+                        <div className="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-4" onClick={()=>setStatusModal(null)}>
+                            <div className="bg-[#1e293b] w-full max-w-xs rounded-[2rem] p-6 shadow-2xl" onClick={e=>e.stopPropagation()}>
+                                <h2 className="text-center font-black mb-6">{statusModal.stageLabel}</h2>
+                                <div className="space-y-3">
+                                    {[0,1,2,3].map(c => <button key={c} onClick={() => { setSignRequirement({...statusModal, code: c, newStatus: statusLabels[c]}); setStatusModal(null); }} className={`w-full py-4 rounded-xl font-black status-${c}`}>{statusLabels[c]}</button>)}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {signRequirement && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <form onSubmit={confirmSignatureAndStatus} className="bg-[#1e293b] w-full max-w-md rounded-[2rem] p-6">
+                                <h2 className="text-center font-black mb-2">חתימה וצילום</h2>
+                                <p className="text-center text-sm text-slate-400 mb-6">אישור שלב: {signRequirement.stageLabel}</p>
+                                <div className="bg-white rounded-xl mb-4 h-40 relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full" /></div>
+                                <input type="file" accept="image/*" capture="environment" onChange={e=>setStatusPhotoFile(e.target.files[0])} className="w-full mb-6" required />
+                                <button type="submit" disabled={isUploading} className="w-full theme-bg py-4 rounded-xl font-black">{isUploading ? 'מעלה...' : 'חתום ואשר'}</button>
+                                <button type="button" onClick={()=>setSignRequirement(null)} className="w-full mt-2 text-slate-500">ביטול</button>
+                            </form>
+                        </div>
+                    )}
+
+                    {deliveryModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <form onSubmit={handleDeliveryAction} className="bg-[#1e293b] w-full max-w-md rounded-[2rem] p-6">
+                                <h2 className="text-center font-black mb-4">{deliveryModal.actionType === 'confirm' ? 'אישור אספקה' : 'ביטול משימה'}</h2>
+                                {deliveryModal.actionType === 'confirm' ? <input type="file" accept="image/*" capture="environment" onChange={e=>setDeliveryPhotoFile(e.target.files[0])} className="mb-4" required /> : <textarea name="cancelReason" placeholder="סיבת ביטול" className="w-full bg-slate-900 p-4 rounded-xl mb-4" required />}
+                                <div className="bg-white rounded-xl mb-4 h-32 relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full" /></div>
+                                <button type="submit" disabled={isUploading} className="w-full bg-emerald-600 py-4 rounded-xl font-black">בצע פעולה</button>
+                                <button type="button" onClick={()=>setDeliveryModal(null)} className="w-full mt-2 text-slate-500">חזור</button>
+                            </form>
+                        </div>
+                    )}
+
+                    {materialsModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <form onSubmit={handleMaterialSubmit} className="bg-[#1e293b] w-full max-w-md rounded-[2rem] p-6">
+                                <h2 className="text-xl font-black mb-4">שיוך ציוד</h2>
+                                <select onChange={e=>setMaterialReqType(e.target.value)} className="w-full bg-slate-900 p-4 rounded-xl mb-4"><option value="stock">מהמלאי</option><option value="special">הזמנה מיוחדת</option></select>
+                                {materialReqType === 'stock' ? <select name="itemId" className="w-full bg-slate-900 p-4 rounded-xl mb-4">{inventory.map(i=><option key={i.id} value={i.id}>{i.name} ({i.quantity})</option>)}</select> : <input name="specialText" placeholder="מה להזמין?" className="w-full bg-slate-900 p-4 rounded-xl mb-4" required />}
+                                <input name="qty" type="number" placeholder="כמות" className="w-full bg-slate-900 p-4 rounded-xl mb-6" defaultValue="1" required />
+                                <button type="submit" className="w-full bg-amber-600 py-4 rounded-xl font-black">שלח בקשה</button>
+                                <button type="button" onClick={()=>setMaterialsModal(null)} className="w-full mt-2 text-slate-500">ביטול</button>
+                            </form>
+                        </div>
+                    )}
+
+                    {photosModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex flex-col p-4">
+                            <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-black">גלריית תמונות</h2><button onClick={()=>setPhotosModal(null)} className="text-2xl">X</button></div>
+                            <div className="grid grid-cols-2 gap-4 overflow-y-auto">
+                                {currentProjectPhotos.map(p => <img key={p.id} src={p.imageBase64} className="rounded-xl" />)}
+                            </div>
+                        </div>
+                    )}
+
+                    {editProjectModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
+                            <form onSubmit={e => { e.preventDefault(); db.collection("projects").doc(editProjectModal.id).update({ name: e.target.n.value, address: e.target.a.value }); setEditProjectModal(null); }} className="bg-[#1e293b] w-full max-w-md rounded-[2rem] p-6">
+                                <h2 className="text-xl font-black mb-4">עריכת פרויקט</h2>
+                                <input name="n" defaultValue={editProjectModal.name} className="w-full bg-slate-900 p-4 rounded-xl mb-4" />
+                                <input name="a" defaultValue={editProjectModal.address} className="w-full bg-slate-900 p-4 rounded-xl mb-6" />
+                                <button type="submit" className="w-full theme-bg py-4 rounded-xl font-black">שמור</button>
+                                <button type="button" onClick={()=>setEditProjectModal(null)} className="w-full mt-2 text-slate-500">ביטול</button>
+                            </form>
+                        </div>
+                    )}
                 </div>
             );
         }
