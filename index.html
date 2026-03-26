@@ -68,6 +68,8 @@
             // מודאלים
             const [showAddProject, setShowAddProject] = useState(false);
             const [showAddUser, setShowAddUser] = useState(false);
+            const [newUserRole, setNewUserRole] = useState("worker"); // ניהול סטייט מתוקן לטופס משתמשים
+
             const [showAddInventory, setShowAddInventory] = useState(false);
             const [statusModal, setStatusModal] = useState(null);
             
@@ -155,7 +157,6 @@
                 setMaterialsModal(null);
             };
 
-            // סינון פרויקטים בטוח - מוגן מפני קריסה כשהמשתמש לא מחובר
             const filteredProjects = projects.filter(p => {
                 const pName = p.name || "";
                 const pAddress = p.address || "";
@@ -264,7 +265,7 @@
                                                             return (
                                                                 <td key={stage.id} onClick={() => { 
                                                                     if(proj.isClosed) return;
-                                                                    if(currentUser.role === 'driver') return alert("לנהגים אין הרשאה לעדכון סטטוס");
+                                                                    if(currentUser.role === 'driver') return alert("לנהגים אין הרשאה לעדכון סטטוס בלוח זה.");
                                                                     setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code });
                                                                 }}>
                                                                     <div className={`status-cell ${color}`}>{label}</div>
@@ -329,14 +330,14 @@
                             <div className="max-w-4xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-purple-500">
                                 <div className="flex justify-between items-center mb-8">
                                     <h2 className="text-3xl font-black text-white">👥 הרשאות צוותים ומנהלים</h2>
-                                    <button onClick={() => setShowAddUser(true)} className="bg-purple-600 text-white px-6 py-2 rounded-xl font-bold">➕ עובד חדש</button>
+                                    <button onClick={() => { setShowAddUser(true); setNewUserRole("worker"); }} className="bg-purple-600 text-white px-6 py-2 rounded-xl font-bold">➕ עובד חדש</button>
                                 </div>
                                 <div className="space-y-3">
                                     {users.map(u => (
                                         <div key={u.id} className="flex justify-between items-center bg-slate-800/50 p-4 rounded-xl border border-white/5">
                                             <div>
                                                 <div className="font-bold text-white text-lg">{u.name}</div>
-                                                <div className="text-xs text-slate-400">קוד גישה: {u.pin} | הרשאה: {roleLabels[u.role]} {u.role === 'worker' ? `(${u.teamName})` : ''}</div>
+                                                <div className="text-xs text-slate-400">קוד גישה: {u.pin} | הרשאה: {roleLabels[u.role]} {u.role === 'worker' ? `(צוות: ${u.teamName})` : ''}</div>
                                             </div>
                                             <button onClick={() => {if(window.confirm('למחוק משתמש?')) db.collection('users').doc(u.id).delete()}} className="text-red-400 font-bold px-4 py-2 bg-red-400/10 rounded-lg">מחק</button>
                                         </div>
@@ -347,6 +348,7 @@
                         
                     </main>
 
+                    {/* מודאל שינוי סטטוס */}
                     {statusModal && !signRequirement && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => setStatusModal(null)}>
                             <div className="glass p-8 rounded-[2rem] w-full max-w-sm" onClick={e=>e.stopPropagation()}>
@@ -372,6 +374,7 @@
                         </div>
                     )}
 
+                    {/* חתימה דיגיטלית */}
                     {signRequirement && (
                         <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                             <div className="glass p-8 rounded-[2rem] w-full max-w-md border-t-4 border-blue-500 shadow-2xl">
@@ -392,7 +395,7 @@
                                     <div>
                                         <label className="text-xs text-slate-400 font-bold mb-1 block flex justify-between">
                                             <span>חתימה אישית חובה:</span>
-                                            <span onClick={() => sigPad.current.clear()} className="text-blue-400 underline cursor-pointer">נקה</span>
+                                            <span onClick={() => sigPad.current.clear()} className="text-blue-400 underline cursor-pointer">נקה מרובע</span>
                                         </label>
                                         <canvas ref={canvasRef} className="signature-pad w-full h-40" />
                                     </div>
@@ -405,6 +408,42 @@
                         </div>
                     )}
 
+                    {/* טופס עובד חדש (המתוקן) */}
+                    {showAddUser && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={e => { 
+                                e.preventDefault(); 
+                                db.collection("users").add({ 
+                                    name: e.target.n.value, 
+                                    pin: e.target.p.value, 
+                                    role: newUserRole, 
+                                    teamName: newUserRole === 'worker' ? e.target.t.value : '' 
+                                }); 
+                                setShowAddUser(false); 
+                            }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
+                                <h2 className="text-white text-2xl font-black">משתמש/צוות חדש</h2>
+                                <input name="n" placeholder="שם העובד / קבלן" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700" required />
+                                <input name="p" placeholder="קוד PIN סודי" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700" required />
+                                
+                                <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700">
+                                    <option value="worker">צוות שטח / קבלן ביצוע</option>
+                                    <option value="driver">נהג חלוקה (רואה הכל, צופה ומנווט בלבד)</option>
+                                    <option value="warehouse">מנהל מחסן</option>
+                                    <option value="admin">מנהל מערכת (גישה מלאה להכל)</option>
+                                </select>
+                                
+                                {/* שדה צוות יופיע אך ורק אם נבחר "צוות שטח" */}
+                                {newUserRole === 'worker' && (
+                                    <input name="t" placeholder="לאיזה צוות לשייך? (למשל: 'צוות א')" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-blue-500" required />
+                                )}
+                                
+                                <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-xl font-bold transition">צור הרשאה</button>
+                                <button type="button" onClick={()=>setShowAddUser(false)} className="w-full text-slate-400 font-bold hover:text-white">ביטול</button>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* שיוך חומרים מהמחסן */}
                     {materialsModal && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
                             <div className="glass p-8 rounded-[2rem] w-full max-w-md">
@@ -436,28 +475,8 @@
                                         }
                                     </ul>
                                 </div>
-                                
                                 <button onClick={()=>setMaterialsModal(null)} className="w-full mt-6 text-slate-400 font-bold">סגור חלון</button>
                             </div>
-                        </div>
-                    )}
-
-                    {showAddUser && (
-                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={e => { e.preventDefault(); db.collection("users").add({ name: e.target.n.value, pin: e.target.p.value, role: e.target.r.value, teamName: e.target.t?.value || '' }); setShowAddUser(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
-                                <h2 className="text-white text-2xl font-black">משתמש/צוות חדש</h2>
-                                <input name="n" placeholder="שם העובד / קבלן" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700" required />
-                                <input name="p" placeholder="קוד PIN סודי" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700" required />
-                                <select name="r" id="roleSelect" onChange={(e) => document.getElementById('teamInput').style.display = e.target.value === 'worker' ? 'block' : 'none'} className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700">
-                                    <option value="worker">צוות שטח / קבלן ביצוע</option>
-                                    <option value="driver">נהג חלוקה (צופה ומנווט בלבד)</option>
-                                    <option value="warehouse">מנהל מחסן</option>
-                                    <option value="admin">מנהל מערכת (גישה מלאה)</option>
-                                </select>
-                                <input id="teamInput" name="t" placeholder="לאיזה צוות לשייך? (למשל: 'צוות א')" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-blue-500" required />
-                                <button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold">צור הרשאה</button>
-                                <button type="button" onClick={()=>setShowAddUser(false)} className="w-full text-slate-400 font-bold">ביטול</button>
-                            </form>
                         </div>
                     )}
 
@@ -482,7 +501,6 @@
                             </form>
                         </div>
                     )}
-
                 </div>
             );
         }
