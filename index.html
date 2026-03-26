@@ -113,28 +113,24 @@
             const [materialReqType, setMaterialReqType] = useState("stock"); 
             const [materialSignData, setMaterialSignData] = useState(null); 
             
-            // גלריית פרויקטים
+            // פרויקטים תמונות
             const [photosModal, setPhotosModal] = useState(null);
             const [currentProjectPhotos, setCurrentProjectPhotos] = useState([]);
             const [activePhotoFolder, setActivePhotoFolder] = useState('כללי');
             
-            // ניהול פריט מחסן
+            // מחסן תמונות
             const [inventoryItemModal, setInventoryItemModal] = useState(null);
             const [invModalTab, setInvModalTab] = useState("gallery"); 
             const [inventoryPhotos, setInventoryPhotos] = useState([]);
-            const [invSignerName, setInvSignerName] = useState("");
-            const [invSignerId, setInvSignerId] = useState("");
+            
+            // חתימות
             const invSigPad = useRef(null);
             const invCanvasRef = useRef(null);
-            
-            const [isUploading, setIsUploading] = useState(false);
-            
-            // חתימה וסטטוס
-            const [signRequirement, setSignRequirement] = useState(null);
             const sigPad = useRef(null);
             const canvasRef = useRef(null);
-            const [signerName, setSignerName] = useState("");
-            const [signerId, setSignerId] = useState("");
+            
+            const [isUploading, setIsUploading] = useState(false);
+            const [signRequirement, setSignRequirement] = useState(null);
 
             useEffect(() => {
                 db.collection("settings").doc("general").onSnapshot(doc => {
@@ -148,26 +144,16 @@
                         if (d.officeEmail) setOfficeEmail(d.officeEmail);
                     }
                 });
-                db.collection("projects").orderBy("createdAt", "desc").onSnapshot(snapshot => {
-                    setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                });
-                db.collection("users").onSnapshot(snapshot => {
-                    setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                });
-                db.collection("inventory").onSnapshot(snapshot => {
-                    setInventory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                });
-                db.collection("attendance").orderBy("timestamp", "desc").limit(100).onSnapshot(snapshot => {
-                    setAttendanceLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                });
+                db.collection("projects").orderBy("createdAt", "desc").onSnapshot(snapshot => setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                db.collection("users").onSnapshot(snapshot => setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                db.collection("inventory").onSnapshot(snapshot => setInventory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                db.collection("attendance").orderBy("timestamp", "desc").limit(100).onSnapshot(snapshot => setAttendanceLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
             }, []);
 
             useEffect(() => {
                 let unsubscribe = () => {};
                 if (photosModal) {
-                    unsubscribe = db.collection("project_photos").where("projId", "==", photosModal.id).orderBy("timestamp", "desc").onSnapshot(snapshot => {
-                        setCurrentProjectPhotos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    });
+                    unsubscribe = db.collection("project_photos").where("projId", "==", photosModal.id).orderBy("timestamp", "desc").onSnapshot(snapshot => setCurrentProjectPhotos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
                 }
                 return () => unsubscribe();
             }, [photosModal]);
@@ -175,9 +161,7 @@
             useEffect(() => {
                 let unsubscribe = () => {};
                 if (inventoryItemModal) {
-                    unsubscribe = db.collection("inventory_photos").where("itemId", "==", inventoryItemModal.id).orderBy("timestamp", "desc").onSnapshot(snapshot => {
-                        setInventoryPhotos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    });
+                    unsubscribe = db.collection("inventory_photos").where("itemId", "==", inventoryItemModal.id).orderBy("timestamp", "desc").onSnapshot(snapshot => setInventoryPhotos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
                 }
                 return () => unsubscribe();
             }, [inventoryItemModal]);
@@ -192,12 +176,10 @@
                         padRef.current.clear();
                     }
                 };
-
                 if ((signRequirement || materialSignData) && canvasRef.current) {
                     sigPad.current = new SignaturePad(canvasRef.current, { backgroundColor: 'rgb(255, 255, 255)' });
                     resizeCanvas(canvasRef.current, sigPad);
                 }
-                
                 if (inventoryItemModal && invModalTab === 'receive' && invCanvasRef.current) {
                     invSigPad.current = new SignaturePad(invCanvasRef.current, { backgroundColor: 'rgb(255, 255, 255)' });
                     resizeCanvas(invCanvasRef.current, invSigPad);
@@ -207,7 +189,7 @@
             const handleLogin = (e) => {
                 e.preventDefault();
                 if (loginUsername === "roeigalam" && loginPassword === "2026") {
-                    setCurrentUser({ id: "admin-roei", name: "רועי גלם (מנכ''ל)", username: "roeigalam", role: "admin", tz: "admin" });
+                    setCurrentUser({ id: "admin-roei", name: "רועי גלם (מנכ''ל)", username: "roeigalam", role: "admin", tz: "000000000", phone: "0500000000" });
                     return;
                 }
                 const userDoc = users.find(u => u.username === loginUsername && u.password === loginPassword);
@@ -238,208 +220,6 @@
                 logAttendanceAndLocation(`יציאה לניווט: ${proj.name}`, () => { window.location.href = wazeUrl; });
                 setTimeout(() => { window.location.href = wazeUrl; }, 1000);
             };
-
-            // תוקן: הסרת async/await כדי למנוע קריסת Babel בדפדפנים מסוימים
-            const processAndUploadFiles = (files, collectionName, extraData) => {
-                if (!files || files.length === 0) return Promise.resolve([]);
-                const uploadPromises = Array.from(files).map(file => {
-                    return new Promise((resolve, reject) => {
-                        const reader = new FileReader(); 
-                        reader.readAsDataURL(file);
-                        reader.onload = (event) => {
-                            const img = new Image(); img.src = event.target.result;
-                            img.onload = () => {
-                                const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000; 
-                                const scaleSize = Math.min(1, MAX_WIDTH / img.width);
-                                canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
-                                const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                                
-                                db.collection(collectionName).add({
-                                    ...extraData,
-                                    imageBase64: canvas.toDataURL('image/jpeg', 0.6),
-                                    uploadedBy: currentUser.name,
-                                    timestamp: new Date().toISOString()
-                                }).then(resolve).catch(reject);
-                            };
-                        };
-                    });
-                });
-                return Promise.all(uploadPromises);
-            };
-
-            const handleProjectPhotosUpload = (e) => {
-                const files = e.target.files;
-                if (!files.length) return;
-                setIsUploading(true);
-                processAndUploadFiles(files, "project_photos", {
-                    projId: photosModal.id,
-                    projName: photosModal.name,
-                    folder: activePhotoFolder
-                }).then(() => {
-                    setIsUploading(false);
-                }).catch(() => {
-                    alert("שגיאה בהעלאת התמונות");
-                    setIsUploading(false);
-                });
-            };
-
-            const deletePhoto = (collection, photoId) => { if(window.confirm("למחוק את התמונה לצמיתות?")) db.collection(collection).doc(photoId).delete(); };
-
-            // תוקן: הסרת async/await לאישור סטטוס
-            const confirmSignatureAndStatus = (e) => {
-                e.preventDefault();
-                
-                if (!signerName || signerName.length < 2) return alert("יש להזין שם מלא");
-                if (!signerId || signerId.length !== 9 || isNaN(signerId)) return alert("ת.ז חייבת להכיל 9 ספרות בדיוק");
-                
-                if (currentUser.role !== 'admin' && currentUser.tz && String(signerId) !== String(currentUser.tz)) {
-                    return alert(`⛔ שגיאה: תעודת הזהות (${signerId}) אינה תואמת למשתמש המחובר למערכת.\nרק עובד הצוות רשאי לחתום.`);
-                }
-
-                if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס");
-
-                const photoInput = document.getElementById("statusPhotoInput");
-                if (!photoInput || !photoInput.files || photoInput.files.length === 0) {
-                    return alert("📷 חובה לצלם/להעלות תמונה מהשטח כדי לאשר סטטוס עבודה!");
-                }
-
-                setIsUploading(true);
-
-                const file = photoInput.files[0];
-                const reader = new FileReader();
-                reader.readAsDataURL(file);
-                
-                reader.onload = (event) => {
-                    const img = new Image(); img.src = event.target.result;
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000;
-                        const scaleSize = Math.min(1, MAX_WIDTH / img.width);
-                        canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
-                        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        
-                        db.collection("project_photos").add({
-                            projId: signRequirement.projId,
-                            projName: projects.find(p => p.id === signRequirement.projId)?.name,
-                            folder: signRequirement.stageLabel,
-                            imageBase64: canvas.toDataURL('image/jpeg', 0.6),
-                            uploadedBy: currentUser.name,
-                            timestamp: new Date().toISOString()
-                        }).then(() => {
-                            const proj = projects.find(p => p.id === signRequirement.projId);
-                            logAttendanceAndLocation(`עדכון סטטוס: ${signRequirement.newStatus} בפרויקט ${proj.name}`);
-
-                            db.collection("projects").doc(signRequirement.projId).update({
-                                [`statuses.${signRequirement.stageId}`]: signRequirement.code,
-                                [`signatures.${signRequirement.stageId}`]: { name: signerName, id: signerId, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() }
-                            }).then(() => {
-                                setIsUploading(false);
-                                setSignRequirement(null); setStatusModal(null); setSignerName(""); setSignerId("");
-                            });
-                        }).catch(() => {
-                            alert("שגיאה בהעלאת התמונה ועדכון הסטטוס.");
-                            setIsUploading(false);
-                        });
-                    };
-                };
-            };
-
-            const handleMaterialSubmit = (e) => {
-                e.preventDefault();
-                const data = { type: materialReqType, qty: Number(e.target.qty.value) };
-
-                if (materialReqType === 'stock') {
-                    const itemId = e.target.itemId.value;
-                    const item = inventory.find(i => i.id === itemId);
-                    if (!item) return alert("שגיאה בזיהוי הפריט");
-                    if (item.quantity < data.qty) return alert("אין מספיק פריטים במלאי המחסן!");
-                    data.itemId = itemId;
-                    data.itemName = item.name;
-                } else {
-                    const specialText = e.target.specialText.value.trim();
-                    if (!specialText) return alert("חובה להזין את פירוט הבקשה!");
-                    data.itemName = "הזמנה מיוחדת: " + specialText;
-                }
-
-                if (currentUser.role === 'admin') {
-                    executeMaterialAllocation(data, null);
-                } else {
-                    setMaterialSignData(data);
-                }
-            };
-
-            const confirmMaterialSignature = () => {
-                if (!signerName || signerName.length < 2) return alert("יש להזין שם מלא");
-                if (!signerId || signerId.length !== 9 || isNaN(signerId)) return alert("ת.ז חייבת להכיל 9 ספרות בדיוק");
-                if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הבקשה");
-
-                const signature = { name: signerName, id: signerId, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() };
-                executeMaterialAllocation(materialSignData, signature);
-                setSignerName(""); setSignerId("");
-            };
-
-            const executeMaterialAllocation = (data, signature) => {
-                if (data.type === 'stock') {
-                    const item = inventory.find(i => i.id === data.itemId);
-                    db.collection("inventory").doc(data.itemId).update({ quantity: item.quantity - data.qty });
-                }
-
-                const currentMaterials = materialsModal.allocatedMaterials || [];
-                const newMaterialObj = { id: Date.now().toString(), name: data.itemName, quantity: data.qty, date: new Date().toISOString(), status: 'pending' };
-                if (signature) newMaterialObj.signature = signature;
-
-                db.collection("projects").doc(materialsModal.id).update({
-                    allocatedMaterials: [...currentMaterials, newMaterialObj]
-                });
-
-                setMaterialSignData(null);
-                setTimeout(() => {
-                    if (window.confirm("הבקשה נרשמה בהצלחה!\n\nהאם תרצה לשלוח כעת הודעת ווצאפ לנהג לעדכון?")) {
-                        const msg = `היי, יש בקשת ציוד חדשה לאתר:\n*${materialsModal.name}*\n\nכמות: ${data.qty} x ${data.itemName}\nאנא בדוק באפליקציה!`;
-                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-                    }
-                    setMaterialsModal(null);
-                }, 100);
-            };
-            
-            // תוקן: קליטת מלאי במחסן ללא async/await לקריסה בטוחה
-            const handleInventoryReceive = (e) => {
-                e.preventDefault();
-                const qty = Number(e.target.qty.value);
-                const files = e.target.deliveryPhotos.files;
-                
-                if(!invSignerName) return alert("יש להזין שם המקבל/נהג");
-                if(invSignerId.length !== 9) return alert("ת.ז חייבת להכיל 9 ספרות בדיוק");
-                if(!invSigPad.current || invSigPad.current.isEmpty()) return alert("חובה לחתום על המסך");
-                if(files.length === 0) return alert("חובה לצלם/לעלות תעודת משלוח או תמונה של הסחורה");
-                
-                setIsUploading(true);
-                
-                processAndUploadFiles(files, "inventory_photos", {
-                    itemId: inventoryItemModal.id,
-                    type: 'delivery_note',
-                    qtyAdded: qty,
-                    signatureName: invSignerName,
-                    signatureData: invSigPad.current.toDataURL()
-                }).then(() => {
-                    const currentItem = inventory.find(i => i.id === inventoryItemModal.id);
-                    db.collection("inventory").doc(inventoryItemModal.id).update({ quantity: currentItem.quantity + qty }).then(() => {
-                        logAttendanceAndLocation(`קליטת סחורה מחסן: הוזנו ${qty} יח' של ${currentItem.name}`);
-                        alert("הסחורה נקלטה בהצלחה!");
-                        setInvSignerName(""); setInvSignerId(""); e.target.reset();
-                        setInvModalTab("gallery");
-                        setIsUploading(false);
-                    });
-                }).catch(() => {
-                    alert("שגיאה בתהליך הקליטה.");
-                    setIsUploading(false);
-                });
-            };
-
-            const alertStrictInventory = () => {
-                alert("⛔ על פי נהלי החברה, לא ניתן לשנות מלאי באופן ידני!\n\nהורדת מלאי מתבצעת אוטומטית בעת שיוך חומרים לפרויקט.\nהוספת מלאי מתבצעת רק דרך כפתור 'ניהול מלאי וקליטה' שדורש העלאת תעודת משלוח וחתימה.");
-            };
-
-            const deleteAttendanceRecord = (id) => { if(window.confirm("למחוק את הדיווח?")) db.collection("attendance").doc(id).delete(); };
 
             const exportPDF = (proj, callback = null) => {
                 const element = document.createElement('div');
@@ -488,6 +268,222 @@
                 const opt = { margin: 10, filename: `דוח_פרויקט_${proj.name.replace(/ /g, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
                 html2pdf().set(opt).from(element).save().then(() => { if (callback) callback(); });
             };
+
+            const sendWhatsAppToClient = (proj) => {
+                let phone = proj.clientPhone || '';
+                if (phone) {
+                    phone = phone.replace(/\D/g, '');
+                    if (phone.startsWith('0')) phone = '972' + phone.substring(1);
+                } else {
+                    alert("שימו לב: לא הוזן טלפון לקוח בפרויקט זה. תוכלו לבחור למי לשלוח מתוך ווצאפ.");
+                }
+                
+                let msg = `שלום, מצורף דוח סטטוס מעודכן לפרויקט ${proj.name}.\n\nלהלן פירוט השלבים:\n`;
+                stages.forEach((stage, idx) => {
+                    const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
+                    msg += `${idx+1}. ${stage.label} - ${statusLabels[code]}\n`;
+                });
+                msg += `\nבברכה,\n${portalName}`;
+                
+                alert("⏳ מכין ומוריד את קובץ ה-PDF...\n\nמיד ייפתח הווצאפ עם ההודעה המוכנה. אנא זכור ללחוץ על האטב 📎 בווצאפ ולצרף את הקובץ שירד לחלון הצ'אט.");
+                
+                exportPDF(proj, () => {
+                    let waLink = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                    if (phone && phone.length > 8) waLink = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+                    window.location.href = waLink;
+                });
+            };
+
+            const processAndUploadFiles = (files, collectionName, extraData) => {
+                if (!files || files.length === 0) return Promise.resolve([]);
+                const uploadPromises = Array.from(files).map(file => {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader(); 
+                        reader.onload = (event) => {
+                            const img = new Image();
+                            img.onload = () => {
+                                const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000; 
+                                const scaleSize = Math.min(1, MAX_WIDTH / img.width);
+                                canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
+                                const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                
+                                db.collection(collectionName).add({
+                                    ...extraData,
+                                    imageBase64: canvas.toDataURL('image/jpeg', 0.6),
+                                    uploadedBy: currentUser.name,
+                                    timestamp: new Date().toISOString()
+                                }).then(resolve).catch(reject);
+                            };
+                            img.src = event.target.result;
+                        };
+                        reader.readAsDataURL(file);
+                    });
+                });
+                return Promise.all(uploadPromises);
+            };
+
+            const handleProjectPhotosUpload = (e) => {
+                const files = e.target.files;
+                if (!files.length) return;
+                setIsUploading(true);
+                processAndUploadFiles(files, "project_photos", {
+                    projId: photosModal.id,
+                    projName: photosModal.name,
+                    folder: activePhotoFolder
+                }).then(() => {
+                    setIsUploading(false);
+                }).catch(() => {
+                    alert("שגיאה בהעלאת התמונות");
+                    setIsUploading(false);
+                });
+            };
+
+            const deletePhoto = (collection, photoId) => { if(window.confirm("למחוק את התמונה לצמיתות?")) db.collection(collection).doc(photoId).delete(); };
+
+            const confirmSignatureAndStatus = (e) => {
+                e.preventDefault();
+                
+                if (!currentUser.tz) return alert("⛔ שגיאה: למשתמש שלך לא מוגדרת תעודת זהות במערכת.\nאנא פנה למנהל להזנת ת.ז בפרופיל שלך.");
+                if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס");
+
+                const photoInput = document.getElementById("statusPhotoInput");
+                if (!photoInput || !photoInput.files || photoInput.files.length === 0) {
+                    return alert("📷 חובה לצלם תמונה מהשטח כדי לאשר סטטוס עבודה!");
+                }
+
+                setIsUploading(true);
+
+                const file = photoInput.files[0];
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000;
+                        const scaleSize = Math.min(1, MAX_WIDTH / img.width);
+                        canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
+                        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        
+                        db.collection("project_photos").add({
+                            projId: signRequirement.projId,
+                            projName: projects.find(p => p.id === signRequirement.projId)?.name,
+                            folder: signRequirement.stageLabel,
+                            imageBase64: canvas.toDataURL('image/jpeg', 0.6),
+                            uploadedBy: currentUser.name,
+                            timestamp: new Date().toISOString()
+                        }).then(() => {
+                            const proj = projects.find(p => p.id === signRequirement.projId);
+                            logAttendanceAndLocation(`עדכון סטטוס: ${signRequirement.newStatus} בפרויקט ${proj.name}`);
+
+                            db.collection("projects").doc(signRequirement.projId).update({
+                                [`statuses.${signRequirement.stageId}`]: signRequirement.code,
+                                [`signatures.${signRequirement.stageId}`]: { name: currentUser.name, id: currentUser.tz, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() }
+                            }).then(() => {
+                                setIsUploading(false);
+                                setSignRequirement(null); setStatusModal(null);
+                            });
+                        }).catch(() => {
+                            alert("שגיאה בהעלאת התמונה ועדכון הסטטוס.");
+                            setIsUploading(false);
+                        });
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const handleMaterialSubmit = (e) => {
+                e.preventDefault();
+                const data = { type: materialReqType, qty: Number(e.target.qty.value) };
+
+                if (materialReqType === 'stock') {
+                    const itemId = e.target.itemId.value;
+                    const item = inventory.find(i => i.id === itemId);
+                    if (!item) return alert("שגיאה בזיהוי הפריט");
+                    if (item.quantity < data.qty) return alert("אין מספיק פריטים במלאי המחסן!");
+                    data.itemId = itemId;
+                    data.itemName = item.name;
+                } else {
+                    const specialText = e.target.specialText.value.trim();
+                    if (!specialText) return alert("חובה להזין את פירוט הבקשה!");
+                    data.itemName = "הזמנה מיוחדת: " + specialText;
+                }
+
+                if (currentUser.role === 'admin') {
+                    executeMaterialAllocation(data, null);
+                } else {
+                    if (!currentUser.tz) return alert("לא הוגדרה ת.ז למשתמש שלך, לא ניתן לחתום.");
+                    setMaterialSignData(data);
+                }
+            };
+
+            const confirmMaterialSignature = () => {
+                if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הבקשה");
+
+                const signature = { name: currentUser.name, id: currentUser.tz, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() };
+                executeMaterialAllocation(materialSignData, signature);
+            };
+
+            const executeMaterialAllocation = (data, signature) => {
+                if (data.type === 'stock') {
+                    const item = inventory.find(i => i.id === data.itemId);
+                    db.collection("inventory").doc(data.itemId).update({ quantity: item.quantity - data.qty });
+                }
+
+                const currentMaterials = materialsModal.allocatedMaterials || [];
+                const newMaterialObj = { id: Date.now().toString(), name: data.itemName, quantity: data.qty, date: new Date().toISOString(), status: 'pending' };
+                if (signature) newMaterialObj.signature = signature;
+
+                db.collection("projects").doc(materialsModal.id).update({
+                    allocatedMaterials: [...currentMaterials, newMaterialObj]
+                });
+
+                setMaterialSignData(null);
+                setTimeout(() => {
+                    if (window.confirm("הבקשה נרשמה בהצלחה!\n\nהאם תרצה לשלוח כעת הודעת ווצאפ לנהג לעדכון?")) {
+                        const msg = `היי, יש בקשת ציוד חדשה לאתר:\n*${materialsModal.name}*\n\nכמות: ${data.qty} x ${data.itemName}\nאנא בדוק באפליקציה!`;
+                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                    }
+                    setMaterialsModal(null);
+                }, 100);
+            };
+            
+            const handleInventoryReceive = (e) => {
+                e.preventDefault();
+                const qty = Number(e.target.qty.value);
+                const files = e.target.deliveryPhotos.files;
+                
+                if(!currentUser.tz) return alert("חסרה תעודת זהות בפרופיל המשתמש שלך, לא ניתן לקלוט סחורה.");
+                if(!invSigPad.current || invSigPad.current.isEmpty()) return alert("חובה לחתום על המסך");
+                if(files.length === 0) return alert("חובה לצלם/לעלות תעודת משלוח או תמונה של הסחורה");
+                
+                setIsUploading(true);
+                
+                processAndUploadFiles(files, "inventory_photos", {
+                    itemId: inventoryItemModal.id,
+                    type: 'delivery_note',
+                    qtyAdded: qty,
+                    signatureName: currentUser.name,
+                    signatureData: invSigPad.current.toDataURL()
+                }).then(() => {
+                    const currentItem = inventory.find(i => i.id === inventoryItemModal.id);
+                    db.collection("inventory").doc(inventoryItemModal.id).update({ quantity: currentItem.quantity + qty }).then(() => {
+                        logAttendanceAndLocation(`קליטת סחורה מחסן: הוזנו ${qty} יח' של ${currentItem.name}`);
+                        alert("הסחורה נקלטה בהצלחה, התעודות נשמרו!");
+                        e.target.reset();
+                        setInvModalTab("gallery");
+                        setIsUploading(false);
+                    });
+                }).catch(() => {
+                    alert("שגיאה בתהליך הקליטה ושמירת התמונה.");
+                    setIsUploading(false);
+                });
+            };
+
+            const alertStrictInventory = () => {
+                alert("⛔ על פי נהלי החברה, לא ניתן לשנות מלאי באופן ידני!\n\nהורדת מלאי מתבצעת אוטומטית בעת שיוך חומרים לפרויקט.\nהוספת מלאי מתבצעת רק דרך כפתור 'ניהול מלאי וקליטה' שדורש העלאת תעודת משלוח וחתימה.");
+            };
+
+            const deleteAttendanceRecord = (id) => { if(window.confirm("למחוק את הדיווח?")) db.collection("attendance").doc(id).delete(); };
 
             const markMaterialDelivered = (projId, matId) => { const proj=projects.find(p=>p.id===projId); const updated=proj.allocatedMaterials.map(m=>m.id===matId?{...m,status:'delivered',deliveryDate:new Date().toISOString()}:m); db.collection("projects").doc(projId).update({allocatedMaterials:updated}); };
             const confirmFinishProject = (e) => { e.preventDefault(); let phone=e.target.phone.value.replace(/\D/g,''); if(phone.startsWith('0')) phone='972'+phone.substring(1); const proj=projects.find(p=>p.id===finishModal.id); db.collection("projects").doc(finishModal.id).update({isFinished:true,finishedAt:new Date().toISOString()}); const message=`שלום,\n\nאנו שמחים לעדכן כי הפרויקט ${finishModal.name} סומן כ"הסתיים" במערכת.\n\nבברכה,\n${portalName}`; let waLink=`https://wa.me/?text=${encodeURIComponent(message)}`; if(phone&&phone.length>8) waLink=`https://wa.me/${phone}?text=${encodeURIComponent(message)}`; window.location.href=waLink; setFinishModal(null); };
@@ -656,7 +652,12 @@
                                                                 <span className="text-xs text-slate-400">📍 {proj.address}</span>
                                                                 <a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition">🚗 Waze</a>
                                                             </div>
-                                                            <div onClick={() => currentUser.role === 'admin' ? setAssignModal({ id: proj.id, name: proj.name, users: Array.isArray(proj.assignedUsers) ? proj.assignedUsers : [] }) : null} className={`bg-slate-800 px-2 py-1 rounded text-[10px] font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer hover:bg-slate-700 text-blue-300' : 'text-slate-300'}`}>👥 צוות: {teamNames} {currentUser.role === 'admin' && '✏️'}</div>
+                                                            <div className="flex gap-2">
+                                                                <div onClick={() => currentUser.role === 'admin' ? setAssignModal({ id: proj.id, name: proj.name, users: Array.isArray(proj.assignedUsers) ? proj.assignedUsers : [] }) : null} className={`bg-slate-800 px-2 py-1 rounded text-[10px] font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer hover:bg-slate-700 text-blue-300' : 'text-slate-300'}`}>👥 צוות: {teamNames} {currentUser.role === 'admin' && '✏️'}</div>
+                                                                {currentUser.role === 'admin' && (
+                                                                    <button onClick={() => sendWhatsAppToClient(proj)} className="bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366] hover:text-white px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1">💬 שלח סטטוס ללקוח</button>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         {stages.map(stage => {
                                                             const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
@@ -706,8 +707,13 @@
                                                     
                                                     <p className="text-sm text-slate-400 mb-3">📍 {proj.address}</p>
                                                     
-                                                    <div onClick={() => currentUser.role === 'admin' ? setAssignModal({ id: proj.id, name: proj.name, users: Array.isArray(proj.assignedUsers) ? proj.assignedUsers : [] }) : null} className={`bg-slate-800/80 px-3 py-2 rounded-xl text-xs font-bold inline-block border border-white/5 mb-5 ${currentUser.role === 'admin' ? 'cursor-pointer' : ''}`}>
-                                                        <span className="text-slate-400">צוות:</span> <span className="text-white">{teamNames}</span> {currentUser.role === 'admin' && '✏️'}
+                                                    <div className="flex gap-2 flex-wrap mb-4">
+                                                        <div onClick={() => currentUser.role === 'admin' ? setAssignModal({ id: proj.id, name: proj.name, users: Array.isArray(proj.assignedUsers) ? proj.assignedUsers : [] }) : null} className={`bg-slate-800/80 px-3 py-2 rounded-xl text-xs font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer' : ''}`}>
+                                                            <span className="text-slate-400">צוות:</span> <span className="text-white">{teamNames}</span> {currentUser.role === 'admin' && '✏️'}
+                                                        </div>
+                                                        {currentUser.role === 'admin' && (
+                                                            <button onClick={() => sendWhatsAppToClient(proj)} className="bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366] hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 border border-[#25D366]/30">💬 שלח סטטוס ללקוח</button>
+                                                        )}
                                                     </div>
 
                                                     <div className="grid grid-cols-2 gap-3 mb-5">
@@ -822,7 +828,6 @@
                                                 <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded font-bold uppercase">{item.category}</span>
                                             </div>
                                             
-                                            {/* כפתורי פלוס מינוס נחסמו והוחלפו באזהרה */}
                                             <div className="flex items-center justify-between bg-slate-800 p-2 rounded-2xl border border-white/5 mb-4">
                                                 <button onClick={alertStrictInventory} className="w-12 h-12 bg-slate-700/50 rounded-xl font-black text-xl hover:bg-red-500 transition active:scale-95">-</button>
                                                 <span className={`text-3xl font-black ${item.quantity <= 5 ? 'text-red-500' : 'text-white'}`}>{item.quantity}</span>
@@ -840,7 +845,7 @@
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                                     <div>
                                         <h2 className="text-2xl md:text-3xl font-black text-white">👥 משתמשים והרשאות</h2>
-                                        <p className="text-purple-400 text-xs mt-1">חובה להזין ת.ז לכל עובד כדי שיוכל לחתום על סטטוסים!</p>
+                                        <p className="text-purple-400 text-xs mt-1">חובה להזין ת.ז לכל עובד כדי שיוכל לחתום אוטומטית.</p>
                                     </div>
                                     <button onClick={() => { setShowAddUser(true); setNewUserRole("worker"); }} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold w-full md:w-auto shadow-lg">➕ עובד חדש</button>
                                 </div>
@@ -849,9 +854,9 @@
                                         <div key={u.id} className="flex flex-col md:flex-row md:justify-between md:items-center bg-slate-900 p-5 rounded-[2rem] border border-white/5 gap-4 shadow-lg">
                                             <div>
                                                 <div className="font-black text-white text-lg mb-1">👤 {u.name}</div>
-                                                <div className="text-xs text-slate-400 bg-slate-800 p-2 rounded-lg inline-block font-mono mb-2">
+                                                <div className="text-xs text-slate-400 bg-slate-800 p-2 rounded-lg inline-block font-mono mb-2 leading-relaxed">
                                                     יוזר: {u.username} | סיסמה: {u.password} <br/>
-                                                    <span className={u.tz ? 'text-emerald-400' : 'text-red-400'}>ת.ז: {u.tz || 'חסר (לא יוכל לחתום!)'}</span>
+                                                    <span className={u.tz ? 'text-emerald-400' : 'text-red-400'}>ת.ז: {u.tz || 'חסר (לא יוכל לחתום!)'}</span> | טל: {u.phone || 'לא הוזן'}
                                                 </div>
                                                 <div className="text-xs text-purple-400 font-bold block">{roleLabels[u.role]}</div>
                                             </div>
@@ -978,8 +983,6 @@
                         
                     </main>
 
-                    {/* --- מודאלים נקיים --- */}
-
                     {/* קליטת מלאי במחסן */}
                     {inventoryItemModal && (
                         <div className="fixed inset-0 bg-slate-900/95 flex flex-col z-50 animate-fade-in md:p-8">
@@ -1032,9 +1035,9 @@
                                                 <input name="qty" type="number" min="1" defaultValue="1" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center font-black text-3xl border border-transparent focus:border-emerald-500" required />
                                             </div>
 
-                                            <div className="space-y-3">
-                                                <input value={invSignerName} onChange={e=>setInvSignerName(e.target.value)} placeholder="שם המקבל / חותם (נהג)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold text-lg" required />
-                                                <input type="tel" maxLength="9" value={invSignerId} onChange={e=>setInvSignerId(e.target.value.replace(/\D/g,''))} placeholder="תעודת זהות (9 ספרות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center text-xl font-black tracking-widest" required />
+                                            <div className="bg-slate-800 border border-white/5 p-4 rounded-xl">
+                                                <p className="text-slate-400 text-xs font-bold mb-1">מורשה חתימה:</p>
+                                                <p className="text-white font-black text-lg">{currentUser.name} <span className="text-slate-500 font-normal text-sm">(ת.ז: {currentUser.tz || 'חסר'})</span></p>
                                             </div>
 
                                             <div className="flex flex-col min-h-[180px]">
@@ -1208,11 +1211,14 @@
                                 <p className="text-center text-slate-400 text-sm mb-5 shrink-0">בקשה: <span className="text-white font-bold bg-white/10 px-2 py-0.5 rounded">{materialSignData.itemName}</span> (כמות: {materialSignData.qty})</p>
                                 
                                 <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-                                    <input value={signerName} onChange={e=>setSignerName(e.target.value)} placeholder="שם מלא (חותם/מאשר)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold text-lg focus:ring-2 focus:ring-amber-500" required />
-                                    <input type="tel" maxLength="9" value={signerId} onChange={e=>setSignerId(e.target.value.replace(/\D/g,''))} placeholder="תעודת זהות (9 ספרות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center text-xl font-black tracking-widest focus:ring-2 focus:ring-amber-500" required />
+                                    <div className="bg-slate-800 border border-white/5 p-4 rounded-xl">
+                                        <p className="text-slate-400 text-xs font-bold mb-1">מורשה חתימה:</p>
+                                        <p className="text-white font-black text-lg">{currentUser.name} <span className="text-slate-500 font-normal text-sm">(ת.ז: {currentUser.tz || 'חסר'})</span></p>
+                                    </div>
+
                                     <div className="flex-1 flex flex-col min-h-[200px]">
                                         <div className="flex justify-between items-center mb-2">
-                                            <label className="text-xs text-slate-400 font-bold">חתימת הלקוח / מנהל בשטח:</label>
+                                            <label className="text-xs text-slate-400 font-bold">חתימת העובד / לקוח בשטח:</label>
                                             <button onClick={() => sigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button>
                                         </div>
                                         <div className="flex-1 w-full bg-white rounded-2xl border-4 border-amber-500/50 overflow-hidden touch-none relative">
@@ -1222,7 +1228,7 @@
                                 </div>
                                 <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0">
                                     <button onClick={confirmMaterialSignature} className="flex-1 bg-amber-600 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">אשר בקשה ✓</button>
-                                    <button onClick={() => {setMaterialSignData(null); setMaterialsModal(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button>
+                                    <button onClick={() => {setMaterialSignData(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button>
                                 </div>
                             </div>
                         </div>
@@ -1237,8 +1243,10 @@
                                 <p className="text-center text-slate-400 text-sm mb-4 shrink-0">מעבר לסטטוס <span className="text-white font-bold bg-white/10 px-2 py-0.5 rounded">{signRequirement.newStatus}</span></p>
                                 
                                 <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-                                    <input value={signerName} onChange={e=>setSignerName(e.target.value)} placeholder="שם מלא (חותם/מאשר)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold text-lg focus:ring-2 focus:ring-blue-500" required />
-                                    <input type="tel" maxLength="9" value={signerId} onChange={e=>setSignerId(e.target.value.replace(/\D/g,''))} placeholder="תעודת זהות (כפי שרשומה במערכת)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center text-xl font-black tracking-widest focus:ring-2 focus:ring-blue-500" required />
+                                    <div className="bg-slate-800 border border-white/5 p-4 rounded-xl">
+                                        <p className="text-slate-400 text-xs font-bold mb-1">מורשה חתימה:</p>
+                                        <p className="text-white font-black text-lg">{currentUser.name} <span className="text-slate-500 font-normal text-sm">(ת.ז: {currentUser.tz || 'חסר'})</span></p>
+                                    </div>
                                     
                                     <div className="flex-1 flex flex-col min-h-[150px]">
                                         <div className="flex justify-between items-center mb-2">
@@ -1254,7 +1262,7 @@
                                         <label className="text-xs text-amber-400 font-bold block mb-2">* חובה לצלם תמונה מהשטח לפני אישור:</label>
                                         <label className="w-full bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed border-white/30">
                                             {isUploading ? <span className="loader"></span> : "📷 לחץ לפתיחת מצלמה"}
-                                            <input id="statusPhotoInput" type="file" accept="image/*" className="hidden" disabled={isUploading} required />
+                                            <input id="statusPhotoInput" type="file" accept="image/*" capture="environment" className="hidden" disabled={isUploading} required />
                                         </label>
                                         <p className="text-[10px] text-center text-slate-500 mt-2">📍 המיקום הנוכחי שלך והתמונה יישמרו בתיקיית הסטטוס.</p>
                                     </div>
@@ -1291,11 +1299,11 @@
                         </div>
                     )}
 
-                    {/* משתמש חדש (עם ת.ז) */}
+                    {/* משתמש חדש */}
                     {showAddUser && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={e => { 
-                                e.preventDefault(); db.collection("users").add({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, tz: e.target.tz.value, role: newUserRole }); setShowAddUser(false); 
+                                e.preventDefault(); db.collection("users").add({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, tz: e.target.tz.value, phone: e.target.phone.value, role: newUserRole }); setShowAddUser(false); 
                             }} className="bg-[#1e293b] w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl" style={{ borderTop: `6px solid ${appColor}` }}>
                                 <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-4 md:hidden"></div>
                                 <h2 className="text-white text-2xl font-black mb-5">משתמש חדש</h2>
@@ -1306,6 +1314,7 @@
                                         <input name="p" type="tel" placeholder="סיסמה" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required />
                                     </div>
                                     <input name="tz" type="tel" maxLength="9" placeholder="תעודת זהות (חובה לצורך חתימות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" required />
+                                    <input name="phone" type="tel" placeholder="מספר טלפון (אופציונלי)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" />
                                     <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold">
                                         <option value="worker">צוות שטח (ביצוע בשטח)</option>
                                         <option value="driver">נהג חלוקה</option>
@@ -1321,12 +1330,12 @@
                         </div>
                     )}
 
-                    {/* עריכת משתמש (עם ת.ז) */}
+                    {/* עריכת משתמש */}
                     {editUserModal && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={e => { 
                                 e.preventDefault(); 
-                                db.collection("users").doc(editUserModal.id).update({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, tz: e.target.tz.value, role: editUserModal.role }); 
+                                db.collection("users").doc(editUserModal.id).update({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, tz: e.target.tz.value, phone: e.target.phone.value, role: editUserModal.role }); 
                                 setEditUserModal(null); 
                             }} className="bg-[#1e293b] w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl" style={{ borderTop: `6px solid ${appColor}` }}>
                                 <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-4 md:hidden"></div>
@@ -1338,6 +1347,7 @@
                                         <input name="p" defaultValue={editUserModal.password} placeholder="סיסמה" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required />
                                     </div>
                                     <input name="tz" defaultValue={editUserModal.tz} type="tel" maxLength="9" placeholder="תעודת זהות (חובה לצורך חתימות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" required />
+                                    <input name="phone" defaultValue={editUserModal.phone} type="tel" placeholder="מספר טלפון (אופציונלי)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" />
                                     <select value={editUserModal.role} onChange={(e) => setEditUserModal({...editUserModal, role: e.target.value})} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold">
                                         <option value="worker">צוות שטח (מבצע פרויקטים)</option>
                                         <option value="driver">נהג חלוקה (רואה הכל)</option>
@@ -1389,7 +1399,7 @@
                                 e.preventDefault(); 
                                 const assigned = getCheckedValues(e.target, 'assignedUsers');
                                 db.collection("projects").add({ 
-                                    name: e.target.n.value, address: e.target.a.value, clientEmail: e.target.e.value, assignedUsers: assigned, statuses: {}, isFinished: false, createdAt: firebase.firestore.Timestamp.now() 
+                                    name: e.target.n.value, address: e.target.a.value, clientPhone: e.target.phone.value, assignedUsers: assigned, statuses: {}, isFinished: false, createdAt: firebase.firestore.Timestamp.now() 
                                 }).then(() => setShowAddProject(false)); 
                             }} className="bg-[#1e293b] w-full h-[90vh] md:h-auto md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col" style={{ borderTop: `6px solid ${appColor}` }}>
                                 <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-4 md:hidden shrink-0"></div>
@@ -1398,7 +1408,7 @@
                                 <div className="flex-1 overflow-y-auto space-y-4 pr-1">
                                     <div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">שם פרויקט / לקוח</label><input name="n" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-black text-lg border border-transparent focus:border-blue-500" required /></div>
                                     <div><label className="text-[10px] theme-text font-bold uppercase block mb-1">* כתובת מדוייקת (לניווט בוויז)</label><input name="a" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold border border-transparent focus:theme-border" required /></div>
-                                    <div><label className="text-[10px] text-emerald-400 font-bold uppercase block mb-1">אימייל לקוח (לדוחות)</label><input name="e" type="email" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" /></div>
+                                    <div><label className="text-[10px] text-[#25D366] font-bold uppercase block mb-1">טלפון לקוח (חובה לשליחת ווצאפ)</label><input name="phone" type="tel" placeholder="050-0000000" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required /></div>
                                     
                                     <div className="pt-2 border-t border-white/5">
                                         <label className="text-[10px] text-amber-400 font-bold uppercase block mb-2">שייך צוות (ניתן לסמן כמה):</label>
