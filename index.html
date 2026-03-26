@@ -120,7 +120,6 @@
                 if (!signerId || signerId.length !== 9 || isNaN(signerId)) return alert("ת.ז חייבת להכיל 9 ספרות בדיוק");
                 if (sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס");
 
-                // עדכון פרויקט כולל חתימה מטא-דאטה
                 db.collection("projects").doc(signRequirement.projId).update({
                     [`statuses.${signRequirement.stageId}`]: signRequirement.code,
                     [`signatures.${signRequirement.stageId}`]: {
@@ -145,10 +144,8 @@
                 const item = inventory.find(i => i.id === invId);
                 if(!item || item.quantity < qty) return alert("אין מספיק מלאי במחסן!");
 
-                // 1. הורדה מהמחסן
                 db.collection("inventory").doc(invId).update({ quantity: item.quantity - qty });
                 
-                // 2. הוספה לפרויקט
                 const proj = projects.find(p => p.id === materialsModal.id);
                 const currentMaterials = proj.allocatedMaterials || [];
                 db.collection("projects").doc(proj.id).update({
@@ -158,13 +155,14 @@
                 setMaterialsModal(null);
             };
 
-            // סינון פרויקטים לפי הרשאה ולפי חיפוש
+            // סינון פרויקטים בטוח - מוגן מפני קריסה כשהמשתמש לא מחובר
             const filteredProjects = projects.filter(p => {
-                const matchesSearch = p.name.includes(searchTerm) || p.address.includes(searchTerm);
+                const pName = p.name || "";
+                const pAddress = p.address || "";
+                const matchesSearch = pName.includes(searchTerm) || pAddress.includes(searchTerm);
                 if (!matchesSearch) return false;
                 
-                // צוות רואה רק את הפרויקטים שלו. הנהג, המחסנאי והמנהל רואים הכל.
-                if (currentUser.role === 'worker') {
+                if (currentUser && currentUser.role === 'worker') {
                     return p.team === currentUser.teamName;
                 }
                 return true; 
@@ -186,7 +184,6 @@
                 );
             }
 
-            // תרגום תפקידים לתצוגה
             const roleLabels = { admin: "מנכ''ל", warehouse: "מנהל מחסן", driver: "נהג חלוקה", worker: "צוות ביצוע" };
 
             return (
@@ -222,7 +219,6 @@
 
                     <main className="flex-1 p-4 md:p-8">
                         
-                        {/* טאב: לוח פרויקטים */}
                         {activeTab === "board" && (
                             <div className="animate-fade-in max-w-[1600px] mx-auto">
                                 <div className="flex justify-between items-end mb-6 gap-4 flex-wrap">
@@ -305,7 +301,6 @@
                             </div>
                         )}
 
-                        {/* שאר הטאבים (מלאי, כספים, משתמשים) דומים לגרסה הקודמת פשוטים וברורים */}
                         {activeTab === "inventory" && (
                             <div className="max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-amber-500">
                                 <div className="flex justify-between items-center mb-8">
@@ -352,9 +347,6 @@
                         
                     </main>
 
-                    {/* מודאלים */}
-                    
-                    {/* מודאל עדכון סטטוס */}
                     {statusModal && !signRequirement && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => setStatusModal(null)}>
                             <div className="glass p-8 rounded-[2rem] w-full max-w-sm" onClick={e=>e.stopPropagation()}>
@@ -369,7 +361,6 @@
                                     ].map(opt => (
                                         <button key={opt.code} onClick={() => {
                                             if (opt.code !== statusModal.currentCode) {
-                                                // העברה למסך חתימה דיגיטלית במקום לעדכן ישירות!
                                                 setSignRequirement({ projId: statusModal.projId, stageId: statusModal.stageId, code: opt.code, stageLabel: statusModal.stageLabel, newStatus: opt.label });
                                             } else {
                                                 setStatusModal(null);
@@ -381,7 +372,6 @@
                         </div>
                     )}
 
-                    {/* מודאל חתימה דיגיטלית חובה */}
                     {signRequirement && (
                         <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                             <div className="glass p-8 rounded-[2rem] w-full max-w-md border-t-4 border-blue-500 shadow-2xl">
@@ -393,7 +383,7 @@
                                 <div className="space-y-4">
                                     <div>
                                         <label className="text-xs text-slate-400 font-bold mb-1 block">שם מלא של מאשר הסטטוס</label>
-                                        <input value={signerName} onChange={e=>setSignerName(e.target.value)} placeholder="ישראל ישראלי" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none border border-slate-700 focus:border-blue-500" required />
+                                        <input value={signerName} onChange={e=>setSignerName(e.target.value)} placeholder="לדוגמה: ישראל ישראלי" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none border border-slate-700 focus:border-blue-500" required />
                                     </div>
                                     <div>
                                         <label className="text-xs text-slate-400 font-bold mb-1 block">מספר תעודת זהות (9 ספרות)</label>
@@ -415,7 +405,6 @@
                         </div>
                     )}
 
-                    {/* מודאל שיוך חומרים לפרויקט */}
                     {materialsModal && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
                             <div className="glass p-8 rounded-[2rem] w-full max-w-md">
@@ -453,7 +442,6 @@
                         </div>
                     )}
 
-                    {/* הוספת משתמש / צוות */}
                     {showAddUser && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
                             <form onSubmit={e => { e.preventDefault(); db.collection("users").add({ name: e.target.n.value, pin: e.target.p.value, role: e.target.r.value, teamName: e.target.t?.value || '' }); setShowAddUser(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
@@ -473,7 +461,6 @@
                         </div>
                     )}
 
-                    {/* הוספת פרויקט עם חובת כתובת מלאה */}
                     {showAddProject && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
                             <form onSubmit={e => { e.preventDefault(); db.collection("projects").add({ name: e.target.n.value, address: e.target.a.value, team: e.target.t.value, statuses: {}, isClosed: false, createdAt: firebase.firestore.Timestamp.now() }).then(() => setShowAddProject(false)); }} className="glass p-10 rounded-[2rem] w-full max-w-md space-y-5 border-t-4 border-blue-500 shadow-2xl">
