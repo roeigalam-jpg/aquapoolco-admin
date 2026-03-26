@@ -123,6 +123,10 @@
             const [invModalTab, setInvModalTab] = useState("gallery"); 
             const [inventoryPhotos, setInventoryPhotos] = useState([]);
             
+            // ניהול קבצים נבחרים ברמת סטייט
+            const [statusPhotoFile, setStatusPhotoFile] = useState(null);
+            const [invDeliveryFiles, setInvDeliveryFiles] = useState(null);
+            
             // חתימות
             const invSigPad = useRef(null);
             const invCanvasRef = useRef(null);
@@ -167,24 +171,30 @@
             }, [inventoryItemModal]);
 
             useEffect(() => {
-                const resizeCanvas = (canvas, padRef) => {
-                    if(canvas) {
-                        const ratio =  Math.max(window.devicePixelRatio || 1, 1);
+                let timeout;
+                const resizeCanvas = (ref, padRef) => {
+                    if (ref.current) {
+                        const canvas = ref.current;
+                        const ratio = Math.max(window.devicePixelRatio || 1, 1);
                         canvas.width = canvas.offsetWidth * ratio;
                         canvas.height = canvas.offsetHeight * ratio;
                         canvas.getContext("2d").scale(ratio, ratio);
-                        padRef.current.clear();
+                        padRef.current = new SignaturePad(canvas, { backgroundColor: 'rgb(255, 255, 255)' });
                     }
                 };
-                if ((signRequirement || materialSignData) && canvasRef.current) {
-                    sigPad.current = new SignaturePad(canvasRef.current, { backgroundColor: 'rgb(255, 255, 255)' });
-                    resizeCanvas(canvasRef.current, sigPad);
+                
+                if (signRequirement || materialSignData) {
+                    timeout = setTimeout(() => resizeCanvas(canvasRef, sigPad), 150);
                 }
-                if (inventoryItemModal && invModalTab === 'receive' && invCanvasRef.current) {
-                    invSigPad.current = new SignaturePad(invCanvasRef.current, { backgroundColor: 'rgb(255, 255, 255)' });
-                    resizeCanvas(invCanvasRef.current, invSigPad);
+                if (inventoryItemModal && invModalTab === 'receive') {
+                    timeout = setTimeout(() => resizeCanvas(invCanvasRef, invSigPad), 150);
                 }
+                return () => clearTimeout(timeout);
             }, [signRequirement, materialSignData, inventoryItemModal, invModalTab]);
+
+            // ניקוי קבצים זמניים בסגירת חלונות
+            useEffect(() => { if(!signRequirement) setStatusPhotoFile(null); }, [signRequirement]);
+            useEffect(() => { if(!inventoryItemModal || invModalTab !== 'receive') setInvDeliveryFiles(null); }, [inventoryItemModal, invModalTab]);
 
             const handleLogin = (e) => {
                 e.preventDefault();
@@ -205,7 +215,6 @@
                             if (callback) callback();
                         },
                         error => {
-                            console.warn("Location permission denied or failed.");
                             db.collection("attendance").add({ userId: currentUser.id, userName: currentUser.name, action: actionDetails + " (ללא מיקום)", lat: null, lng: null, timestamp: new Date().toISOString() });
                             if (callback) callback();
                         },
@@ -222,6 +231,9 @@
             };
 
             const exportPDF = (proj, callback = null) => {
+                // פונקציית עזר לתיקון רווחים בעברית ל-PDF
+                const rtl = (text) => (text || '').toString().replace(/ /g, '&nbsp;');
+                
                 const element = document.createElement('div');
                 const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) 
                     ? proj.assignedUsers.map(uid => { const u = users.find(x=>x.id===uid); return u ? u.name : ''; }).filter(Boolean).join(', ')
@@ -236,10 +248,10 @@
                     }
                     return `
                         <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${stage.label}</td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${statusLabels[code]}</td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? `${sig.name}<br/><span style="color:gray; font-size: 10px;">ת.ז: ${sig.id}</span>` : '-'}</td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? new Date(sig.date).toLocaleString('he-IL') : '-'}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${rtl(stage.label)}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${rtl(statusLabels[code])}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? `${rtl(sig.name)}<br/><span style="color:gray; font-size: 10px;">ת.ז:&nbsp;${sig.id}</span>` : '-'}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? new Date(sig.date).toLocaleString('he-IL').replace(/ /g, '&nbsp;') : '-'}</td>
                         </tr>
                         ${signatureImage}
                     `;
@@ -250,16 +262,16 @@
                         <div style="text-align: center; margin-bottom: 20px;">
                             <img src="${LOGO_URL}" style="max-height: 100px;" crossorigin="anonymous" />
                         </div>
-                        <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px; font-size: 24px;">${portalName} - דוח סטטוס פרויקט</h1>
-                        <h2 style="text-align: center; margin-top: 20px; font-size: 20px;">פרויקט: ${proj.name}</h2>
+                        <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px; font-size: 24px;">${rtl(portalName)}&nbsp;-&nbsp;דוח&nbsp;סטטוס&nbsp;פרויקט</h1>
+                        <h2 style="text-align: center; margin-top: 20px; font-size: 20px;">פרויקט:&nbsp;${rtl(proj.name)}</h2>
                         <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 14px; border: 1px solid #e2e8f0;">
-                            <p style="margin: 5px 0;"><strong>כתובת האתר:</strong> ${proj.address}</p>
-                            <p style="margin: 5px 0;"><strong>צוות מבצע:</strong> ${teamNames}</p>
-                            <p style="margin: 5px 0;"><strong>תאריך הפקת דוח:</strong> ${new Date().toLocaleString('he-IL')}</p>
+                            <p style="margin: 5px 0;"><strong>כתובת&nbsp;האתר:</strong>&nbsp;${rtl(proj.address)}</p>
+                            <p style="margin: 5px 0;"><strong>צוות&nbsp;מבצע:</strong>&nbsp;${rtl(teamNames)}</p>
+                            <p style="margin: 5px 0;"><strong>תאריך&nbsp;הפקת&nbsp;דוח:</strong>&nbsp;${new Date().toLocaleString('he-IL').replace(/ /g, '&nbsp;')}</p>
                         </div>
-                        <h3 style="color: #475569; margin-bottom: 15px; font-size: 16px;">פירוט אבני דרך וחתימות:</h3>
+                        <h3 style="color: #475569; margin-bottom: 15px; font-size: 16px;">פירוט&nbsp;אבני&nbsp;דרך&nbsp;וחתימות:</h3>
                         <table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0; font-size: 14px;">
-                            <thead><tr style="background-color: ${appColor}; color: white;"><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב עבודה</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">סטטוס</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">מאשר</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">תאריך</th></tr></thead>
+                            <thead><tr style="background-color: ${appColor}; color: white;"><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב&nbsp;עבודה</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">סטטוס</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">מאשר</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">תאריך</th></tr></thead>
                             <tbody>${milestonesHtml}</tbody>
                         </table>
                     </div>
@@ -324,7 +336,7 @@
 
             const handleProjectPhotosUpload = (e) => {
                 const files = e.target.files;
-                if (!files.length) return;
+                if (!files || !files.length) return;
                 setIsUploading(true);
                 processAndUploadFiles(files, "project_photos", {
                     projId: photosModal.id,
@@ -333,7 +345,7 @@
                 }).then(() => {
                     setIsUploading(false);
                 }).catch(() => {
-                    alert("שגיאה בהעלאת התמונות");
+                    alert("שגיאה בהעלאת התמונות. אנא נסה שוב.");
                     setIsUploading(false);
                 });
             };
@@ -343,17 +355,12 @@
             const confirmSignatureAndStatus = (e) => {
                 e.preventDefault();
                 
-                if (!currentUser.tz) return alert("⛔ שגיאה: למשתמש שלך לא מוגדרת תעודת זהות במערכת.\nאנא פנה למנהל להזנת ת.ז בפרופיל שלך.");
-                if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס");
-
-                const photoInput = document.getElementById("statusPhotoInput");
-                if (!photoInput || !photoInput.files || photoInput.files.length === 0) {
-                    return alert("📷 חובה לצלם תמונה מהשטח כדי לאשר סטטוס עבודה!");
-                }
+                if (!currentUser.tz) return alert("⛔ שגיאה: למשתמש שלך לא מוגדרת תעודת זהות במערכת. אנא פנה למנהל.");
+                if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס!");
+                if (!statusPhotoFile) return alert("📷 חובה לצלם/לעלות תמונה מהשטח כדי לאשר סטטוס עבודה!");
 
                 setIsUploading(true);
 
-                const file = photoInput.files[0];
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     const img = new Image();
@@ -379,7 +386,9 @@
                                 [`signatures.${signRequirement.stageId}`]: { name: currentUser.name, id: currentUser.tz, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() }
                             }).then(() => {
                                 setIsUploading(false);
-                                setSignRequirement(null); setStatusModal(null);
+                                setStatusPhotoFile(null);
+                                setSignRequirement(null); 
+                                setStatusModal(null);
                             });
                         }).catch(() => {
                             alert("שגיאה בהעלאת התמונה ועדכון הסטטוס.");
@@ -388,7 +397,7 @@
                     };
                     img.src = event.target.result;
                 };
-                reader.readAsDataURL(file);
+                reader.readAsDataURL(statusPhotoFile);
             };
 
             const handleMaterialSubmit = (e) => {
@@ -417,7 +426,7 @@
             };
 
             const confirmMaterialSignature = () => {
-                if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הבקשה");
+                if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הבקשה!");
 
                 const signature = { name: currentUser.name, id: currentUser.tz, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() };
                 executeMaterialAllocation(materialSignData, signature);
@@ -450,15 +459,14 @@
             const handleInventoryReceive = (e) => {
                 e.preventDefault();
                 const qty = Number(e.target.qty.value);
-                const files = e.target.deliveryPhotos.files;
                 
                 if(!currentUser.tz) return alert("חסרה תעודת זהות בפרופיל המשתמש שלך, לא ניתן לקלוט סחורה.");
-                if(!invSigPad.current || invSigPad.current.isEmpty()) return alert("חובה לחתום על המסך");
-                if(files.length === 0) return alert("חובה לצלם/לעלות תעודת משלוח או תמונה של הסחורה");
+                if(!invSigPad.current || invSigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור קליטה!");
+                if(!invDeliveryFiles || invDeliveryFiles.length === 0) return alert("חובה להעלות תעודת משלוח או תמונה של הסחורה!");
                 
                 setIsUploading(true);
                 
-                processAndUploadFiles(files, "inventory_photos", {
+                processAndUploadFiles(invDeliveryFiles, "inventory_photos", {
                     itemId: inventoryItemModal.id,
                     type: 'delivery_note',
                     qtyAdded: qty,
@@ -470,6 +478,7 @@
                         logAttendanceAndLocation(`קליטת סחורה מחסן: הוזנו ${qty} יח' של ${currentItem.name}`);
                         alert("הסחורה נקלטה בהצלחה, התעודות נשמרו!");
                         e.target.reset();
+                        setInvDeliveryFiles(null);
                         setInvModalTab("gallery");
                         setIsUploading(false);
                     });
@@ -845,7 +854,7 @@
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                                     <div>
                                         <h2 className="text-2xl md:text-3xl font-black text-white">👥 משתמשים והרשאות</h2>
-                                        <p className="text-purple-400 text-xs mt-1">חובה להזין ת.ז לכל עובד כדי שיוכל לחתום אוטומטית.</p>
+                                        <p className="text-purple-400 text-xs mt-1">חובה להזין ת.ז וטלפון לכל עובד.</p>
                                     </div>
                                     <button onClick={() => { setShowAddUser(true); setNewUserRole("worker"); }} className="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold w-full md:w-auto shadow-lg">➕ עובד חדש</button>
                                 </div>
@@ -856,7 +865,7 @@
                                                 <div className="font-black text-white text-lg mb-1">👤 {u.name}</div>
                                                 <div className="text-xs text-slate-400 bg-slate-800 p-2 rounded-lg inline-block font-mono mb-2 leading-relaxed">
                                                     יוזר: {u.username} | סיסמה: {u.password} <br/>
-                                                    <span className={u.tz ? 'text-emerald-400' : 'text-red-400'}>ת.ז: {u.tz || 'חסר (לא יוכל לחתום!)'}</span> | טל: {u.phone || 'לא הוזן'}
+                                                    <span className={u.tz ? 'text-emerald-400' : 'text-red-400'}>ת.ז: {u.tz || 'חסר (לא יוכל לחתום!)'}</span> | <span className={u.phone ? 'text-emerald-400' : 'text-red-400'}>טל: {u.phone || 'חסר'}</span>
                                                 </div>
                                                 <div className="text-xs text-purple-400 font-bold block">{roleLabels[u.role]}</div>
                                             </div>
@@ -1042,7 +1051,7 @@
 
                                             <div className="flex flex-col min-h-[180px]">
                                                 <div className="flex justify-between items-center mb-2">
-                                                    <label className="text-xs text-slate-400 font-bold">חתימה לאישור קליטת הסחורה:</label>
+                                                    <label className="text-xs text-slate-400 font-bold">חתימה לאישור קליטת הסחורה (חובה):</label>
                                                     <button type="button" onClick={() => invSigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button>
                                                 </div>
                                                 <div className="flex-1 w-full bg-white rounded-2xl border-4 border-emerald-500/50 overflow-hidden touch-none relative">
@@ -1052,9 +1061,9 @@
 
                                             <div className="pt-2">
                                                 <label className="text-xs text-amber-400 font-bold block mb-2">* חובה להעלות תעודת משלוח או תמונות של הציוד:</label>
-                                                <label className="w-full bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed border-white/30">
-                                                    {isUploading ? <span className="loader"></span> : "📷 לחץ לבחירת תמונות / צילום"}
-                                                    <input name="deliveryPhotos" type="file" accept="image/*" multiple className="hidden" disabled={isUploading} required />
+                                                <label className={`w-full py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed ${invDeliveryFiles ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500' : 'bg-slate-800 hover:bg-slate-700 text-white border-white/30'}`}>
+                                                    {isUploading ? <span className="loader"></span> : (invDeliveryFiles ? "תמונה נבחרה מוכנה לקליטה ✓" : "📷 לחץ לבחירת תמונות / צילום")}
+                                                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => setInvDeliveryFiles(e.target.files)} disabled={isUploading} />
                                                 </label>
                                             </div>
 
@@ -1119,7 +1128,7 @@
 
                                 <div className="p-4 border-t border-white/10 bg-[#1e293b] shrink-0">
                                     <label className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition shadow-lg cursor-pointer flex items-center justify-center gap-2">
-                                        {isUploading ? <span className="loader"></span> : `➕ העלה לתיקיית: ${activePhotoFolder}`}
+                                        {isUploading ? <span className="loader"></span> : `➕ העלה תמונה לתיקיית: ${activePhotoFolder}`}
                                         <input type="file" accept="image/*" multiple className="hidden" onChange={handleProjectPhotosUpload} disabled={isUploading} />
                                     </label>
                                 </div>
@@ -1218,7 +1227,7 @@
 
                                     <div className="flex-1 flex flex-col min-h-[200px]">
                                         <div className="flex justify-between items-center mb-2">
-                                            <label className="text-xs text-slate-400 font-bold">חתימת העובד / לקוח בשטח:</label>
+                                            <label className="text-xs text-slate-400 font-bold">חתימת העובד / לקוח בשטח (חובה):</label>
                                             <button onClick={() => sigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button>
                                         </div>
                                         <div className="flex-1 w-full bg-white rounded-2xl border-4 border-amber-500/50 overflow-hidden touch-none relative">
@@ -1250,7 +1259,7 @@
                                     
                                     <div className="flex-1 flex flex-col min-h-[150px]">
                                         <div className="flex justify-between items-center mb-2">
-                                            <label className="text-xs text-slate-400 font-bold">חתימת העובד בשטח:</label>
+                                            <label className="text-xs text-slate-400 font-bold">חתימת העובד בשטח (חובה):</label>
                                             <button type="button" onClick={() => sigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button>
                                         </div>
                                         <div className="flex-1 w-full bg-white rounded-2xl border-4 border-blue-500/50 overflow-hidden touch-none relative">
@@ -1260,18 +1269,18 @@
                                     
                                     <div className="pt-2">
                                         <label className="text-xs text-amber-400 font-bold block mb-2">* חובה לצלם תמונה מהשטח לפני אישור:</label>
-                                        <label className="w-full bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed border-white/30">
-                                            {isUploading ? <span className="loader"></span> : "📷 לחץ לפתיחת מצלמה"}
-                                            <input id="statusPhotoInput" type="file" accept="image/*" capture="environment" className="hidden" disabled={isUploading} required />
+                                        <label className={`w-full py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed ${statusPhotoFile ? 'bg-blue-600/20 text-blue-400 border-blue-500' : 'bg-slate-800 hover:bg-slate-700 text-white border-white/30'}`}>
+                                            {isUploading ? <span className="loader"></span> : (statusPhotoFile ? "תמונה נבחרה מוכנה לשליחה ✓" : "📷 לחץ לפתיחת מצלמה")}
+                                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setStatusPhotoFile(e.target.files[0])} disabled={isUploading} />
                                         </label>
                                         <p className="text-[10px] text-center text-slate-500 mt-2">📍 המיקום הנוכחי שלך והתמונה יישמרו בתיקיית הסטטוס.</p>
                                     </div>
                                 </div>
                                 <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0">
                                     <button type="submit" disabled={isUploading} className={`flex-1 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition flex justify-center items-center gap-2 ${isUploading ? 'bg-slate-600' : 'theme-bg'}`}>
-                                        {isUploading ? 'מעלה תמונה...' : 'חתום ואשר ✓'}
+                                        {isUploading ? 'מעלה...' : 'חתום ואשר ✓'}
                                     </button>
-                                    <button type="button" onClick={() => {setSignRequirement(null); setStatusModal(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button>
+                                    <button type="button" onClick={() => {setSignRequirement(null); setStatusModal(null); setStatusPhotoFile(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button>
                                 </div>
                             </form>
                         </div>
@@ -1314,7 +1323,7 @@
                                         <input name="p" type="tel" placeholder="סיסמה" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required />
                                     </div>
                                     <input name="tz" type="tel" maxLength="9" placeholder="תעודת זהות (חובה לצורך חתימות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" required />
-                                    <input name="phone" type="tel" placeholder="מספר טלפון (אופציונלי)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" />
+                                    <input name="phone" type="tel" placeholder="מספר טלפון (חובה)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest border border-transparent focus:border-blue-500" required />
                                     <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold">
                                         <option value="worker">צוות שטח (ביצוע בשטח)</option>
                                         <option value="driver">נהג חלוקה</option>
@@ -1347,7 +1356,7 @@
                                         <input name="p" defaultValue={editUserModal.password} placeholder="סיסמה" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required />
                                     </div>
                                     <input name="tz" defaultValue={editUserModal.tz} type="tel" maxLength="9" placeholder="תעודת זהות (חובה לצורך חתימות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" required />
-                                    <input name="phone" defaultValue={editUserModal.phone} type="tel" placeholder="מספר טלפון (אופציונלי)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" />
+                                    <input name="phone" defaultValue={editUserModal.phone} type="tel" placeholder="מספר טלפון (חובה)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest border border-transparent focus:border-blue-500" required />
                                     <select value={editUserModal.role} onChange={(e) => setEditUserModal({...editUserModal, role: e.target.value})} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold">
                                         <option value="worker">צוות שטח (מבצע פרויקטים)</option>
                                         <option value="driver">נהג חלוקה (רואה הכל)</option>
@@ -1408,7 +1417,7 @@
                                 <div className="flex-1 overflow-y-auto space-y-4 pr-1">
                                     <div><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">שם פרויקט / לקוח</label><input name="n" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-black text-lg border border-transparent focus:border-blue-500" required /></div>
                                     <div><label className="text-[10px] theme-text font-bold uppercase block mb-1">* כתובת מדוייקת (לניווט בוויז)</label><input name="a" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold border border-transparent focus:theme-border" required /></div>
-                                    <div><label className="text-[10px] text-[#25D366] font-bold uppercase block mb-1">טלפון לקוח (חובה לשליחת ווצאפ)</label><input name="phone" type="tel" placeholder="050-0000000" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required /></div>
+                                    <div><label className="text-[10px] text-[#25D366] font-bold uppercase block mb-1">טלפון לקוח (חובה לשליחת ווצאפ)</label><input name="phone" type="tel" placeholder="050-0000000" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right border border-transparent focus:border-[#25D366]" required /></div>
                                     
                                     <div className="pt-2 border-t border-white/5">
                                         <label className="text-[10px] text-amber-400 font-bold uppercase block mb-2">שייך צוות (ניתן לסמן כמה):</label>
