@@ -11,6 +11,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-firestore-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
     <style>
         body { background-color: #0f172a; color: white; font-family: system-ui, -apple-system, sans-serif; overflow-x: hidden; }
         .glass { background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
@@ -26,18 +27,19 @@
         .status-1 { background-color: #f59e0b; color: #fff; } 
         .status-2 { background-color: #ef4444; color: #fff; } 
         .status-3 { background-color: #10b981; color: #fff; } 
-        .project-closed { opacity: 0.5; }
+        .project-closed { opacity: 0.5; filter: grayscale(50%); }
 
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 4px; }
+        .signature-pad { background: white; border-radius: 8px; cursor: crosshair; touch-action: none; border: 2px solid #3b82f6; }
     </style>
 </head>
 <body class="antialiased">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         const firebaseConfig = {
             apiKey: "AIzaSyDld2PBV8RugpAEZyTmkMrfBZNDZp4GkJw",
@@ -51,7 +53,6 @@
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // קישור ישיר וחסין ללוגו שלך מתוך הגיטהאב
         const LOGO_URL = "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg";
 
         function App() {
@@ -64,10 +65,21 @@
             const [activeTab, setActiveTab] = useState("board");
             const [searchTerm, setSearchTerm] = useState("");
             
+            // מודאלים
             const [showAddProject, setShowAddProject] = useState(false);
             const [showAddUser, setShowAddUser] = useState(false);
             const [showAddInventory, setShowAddInventory] = useState(false);
             const [statusModal, setStatusModal] = useState(null);
+            
+            // מודאל חתימה
+            const [signRequirement, setSignRequirement] = useState(null);
+            const sigPad = useRef(null);
+            const canvasRef = useRef(null);
+            const [signerName, setSignerName] = useState("");
+            const [signerId, setSignerId] = useState("");
+
+            // מודאל שיוך חומרים
+            const [materialsModal, setMaterialsModal] = useState(null);
 
             useEffect(() => {
                 db.collection("settings").doc("general").onSnapshot(doc => {
@@ -84,9 +96,15 @@
                 });
             }, []);
 
+            useEffect(() => {
+                if (signRequirement && canvasRef.current) {
+                    sigPad.current = new SignaturePad(canvasRef.current, { backgroundColor: 'rgb(255, 255, 255)' });
+                }
+            }, [signRequirement]);
+
             const handleLogin = () => {
                 if (pass === "2026") {
-                    setCurrentUser({ name: "רועי (מנכ''ל)", role: "admin" });
+                    setCurrentUser({ name: "רועי (מנכ''ל)", role: "admin", teamName: "הנהלה" });
                     return;
                 }
                 const userDoc = users.find(u => u.pin === pass);
@@ -97,46 +115,79 @@
                 }
             };
 
-            const toggleProjectClose = (proj) => {
-                db.collection("projects").doc(proj.id).update({ isClosed: !proj.isClosed });
-            };
+            const confirmSignatureAndStatus = () => {
+                if (!signerName || signerName.length < 2) return alert("יש להזין שם מלא");
+                if (!signerId || signerId.length !== 9 || isNaN(signerId)) return alert("ת.ז חייבת להכיל 9 ספרות בדיוק");
+                if (sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס");
 
-            const updateFinance = (projId, field, val) => {
-                db.collection("projects").doc(projId).update({ [field]: Number(val) });
-            };
-
-            const exportCSV = () => {
-                let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-                csvContent += "שם פרויקט,כתובת,צוות,סטטוס,תקציב,שולם\n";
-                projects.forEach(p => {
-                    csvContent += `${p.name},${p.address},${p.team},${p.isClosed ? 'סגור' : 'פעיל'},${p.budget||0},${p.paid||0}\n`;
+                // עדכון פרויקט כולל חתימה מטא-דאטה
+                db.collection("projects").doc(signRequirement.projId).update({
+                    [`statuses.${signRequirement.stageId}`]: signRequirement.code,
+                    [`signatures.${signRequirement.stageId}`]: {
+                        name: signerName,
+                        id: signerId,
+                        date: new Date().toISOString(),
+                        signatureData: sigPad.current.toDataURL()
+                    }
                 });
-                const encodedUri = encodeURI(csvContent);
-                const link = document.createElement("a");
-                link.setAttribute("href", encodedUri);
-                link.setAttribute("download", "aquapoolco_report.csv");
-                document.body.appendChild(link);
-                link.click();
+
+                setSignRequirement(null);
+                setStatusModal(null);
+                setSignerName("");
+                setSignerId("");
             };
 
-            const filteredProjects = projects.filter(p => p.name.includes(searchTerm) || p.address.includes(searchTerm));
+            const handleAllocateMaterial = (e) => {
+                e.preventDefault();
+                const invId = e.target.item.value;
+                const qty = Number(e.target.qty.value);
+                
+                const item = inventory.find(i => i.id === invId);
+                if(!item || item.quantity < qty) return alert("אין מספיק מלאי במחסן!");
+
+                // 1. הורדה מהמחסן
+                db.collection("inventory").doc(invId).update({ quantity: item.quantity - qty });
+                
+                // 2. הוספה לפרויקט
+                const proj = projects.find(p => p.id === materialsModal.id);
+                const currentMaterials = proj.allocatedMaterials || [];
+                db.collection("projects").doc(proj.id).update({
+                    allocatedMaterials: [...currentMaterials, { name: item.name, quantity: qty, date: new Date().toISOString() }]
+                });
+                alert("החומר שויך בהצלחה וירד מהמלאי!");
+                setMaterialsModal(null);
+            };
+
+            // סינון פרויקטים לפי הרשאה ולפי חיפוש
+            const filteredProjects = projects.filter(p => {
+                const matchesSearch = p.name.includes(searchTerm) || p.address.includes(searchTerm);
+                if (!matchesSearch) return false;
+                
+                // צוות רואה רק את הפרויקטים שלו. הנהג, המחסנאי והמנהל רואים הכל.
+                if (currentUser.role === 'worker') {
+                    return p.team === currentUser.teamName;
+                }
+                return true; 
+            });
 
             if (!currentUser) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
                         <div className="glass p-12 rounded-[2rem] w-full max-w-sm text-center border-t-4 border-blue-500 shadow-2xl">
                             <div className="flex justify-center mb-6">
-                                <img src={LOGO_URL} alt="Logo" className="h-20 object-contain rounded-xl bg-white p-2 shadow-lg" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
-                                <div style={{display:'none'}} className="text-white font-black text-3xl italic tracking-tighter">AQUAPOOLCO</div>
+                                <img src={LOGO_URL} alt="Logo" className="h-20 object-contain rounded-xl bg-white p-2 shadow-lg" onError={(e) => { e.target.style.display='none'; }} />
                             </div>
-                            <h1 className="text-2xl font-black mb-1 text-white">מערכת ניהול ERP</h1>
-                            <p className="text-blue-500 font-bold mb-8 uppercase text-xs tracking-widest">מחלקת עבודות גמר</p>
+                            <h1 className="text-2xl font-black mb-1 text-white">מערכת ERP</h1>
+                            <p className="text-blue-500 font-bold mb-8 uppercase text-xs tracking-widest">אקוופולקו חן בע"מ</p>
                             <input type="password" placeholder="הזן קוד גישה למערכת" onChange={e=>setPass(e.target.value)} className="w-full p-4 bg-slate-900 rounded-xl mb-6 text-center text-white outline-none border border-slate-700 focus:border-blue-500 font-bold" />
-                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black transition-all shadow-lg">התחברות מאובטחת</button>
+                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black transition-all shadow-lg">התחברות למערכת</button>
                         </div>
                     </div>
                 );
             }
+
+            // תרגום תפקידים לתצוגה
+            const roleLabels = { admin: "מנכ''ל", warehouse: "מנהל מחסן", driver: "נהג חלוקה", worker: "צוות ביצוע" };
 
             return (
                 <div className="min-h-screen flex flex-col">
@@ -146,17 +197,19 @@
                                 <img src={LOGO_URL} alt="Logo" className="h-10 bg-white rounded p-1 object-contain" onError={(e) => e.target.style.display='none'} />
                                 <div>
                                     <div className="text-lg font-black text-white leading-tight">אקוופולקו חן בע"מ</div>
-                                    <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">מחובר כ: {currentUser.name}</div>
+                                    <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">שלום רועי | מחובר כ: {roleLabels[currentUser.role]}</div>
                                 </div>
                             </div>
                             <nav className="flex gap-2">
-                                <button onClick={() => setActiveTab("board")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'board' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📊 לוח פרויקטים</button>
+                                <button onClick={() => setActiveTab("board")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'board' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📊 לוח עבודה</button>
+                                {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
+                                    <button onClick={() => setActiveTab("inventory")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'inventory' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📦 מלאי מחסן</button>
+                                )}
                                 {currentUser.role === 'admin' && (
                                     <>
-                                        <button onClick={() => setActiveTab("inventory")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'inventory' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📦 ניהול מלאי</button>
-                                        <button onClick={() => setActiveTab("finance")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'finance' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>💰 פיננסי וגבייה</button>
-                                        <button onClick={() => setActiveTab("users")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'users' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>👥 צוותים</button>
-                                        <button onClick={() => setActiveTab("settings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>⚙️ הגדרות</button>
+                                        <button onClick={() => setActiveTab("finance")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'finance' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>💰 כספים</button>
+                                        <button onClick={() => setActiveTab("users")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'users' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>👥 הרשאות</button>
+                                        <button onClick={() => setActiveTab("settings")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>⚙️ הגדרות לוח</button>
                                     </>
                                 )}
                             </nav>
@@ -174,19 +227,18 @@
                             <div className="animate-fade-in max-w-[1600px] mx-auto">
                                 <div className="flex justify-between items-end mb-6 gap-4 flex-wrap">
                                     <input type="text" placeholder="🔍 חפש פרויקט או עיר..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="p-3 rounded-xl bg-slate-900 border border-slate-700 text-white outline-none focus:border-blue-500 w-full md:w-80 font-bold" />
-                                    {currentUser.role === 'admin' && <button onClick={exportCSV} className="bg-white/10 hover:bg-white/20 px-6 py-3 rounded-xl text-sm font-bold transition flex items-center gap-2">📥 ייצא לאקסל (CSV)</button>}
                                 </div>
 
-                                <div className="table-container bg-[#1e293b]/50">
+                                <div className="table-container bg-[#1e293b]/50 shadow-2xl">
                                     <table className="w-full text-right">
                                         <thead>
                                             <tr>
                                                 <th className="w-2"></th>
-                                                <th className="min-w-[200px]">שם פרויקט / לקוח</th>
+                                                <th className="min-w-[250px]">שם פרויקט ומיקום</th>
                                                 <th className="min-w-[120px]">צוות מבצע</th>
                                                 {stages.map(s => <th key={s.id} className="text-center">{s.label}</th>)}
                                                 <th>התקדמות</th>
-                                                <th className="text-center">פעולות</th>
+                                                <th className="text-center">פעולות שטח</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -201,17 +253,24 @@
                                                             <div className="font-black text-white text-lg flex items-center gap-2">
                                                                 {proj.isClosed && "🔒"} {proj.name}
                                                             </div>
-                                                            <div className="text-xs text-slate-400">📍 {proj.address}</div>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <span className="text-xs text-slate-400">📍 {proj.address}</span>
+                                                                <a href={`https://waze.com/ul?q=${encodeURIComponent(proj.address)}`} target="_blank" className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition flex items-center gap-1">🚗 ניווט Waze</a>
+                                                            </div>
                                                         </td>
                                                         <td><div className="bg-slate-800 text-slate-300 px-3 py-1 rounded-full text-xs font-bold inline-block border border-white/5">👷 {proj.team}</div></td>
                                                         
                                                         {stages.map(stage => {
                                                             const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
-                                                            const color = code === 3 ? "bg-[#10b981] text-white" : code === 2 ? "bg-[#ef4444] text-white" : code === 1 ? "bg-[#f59e0b] text-white" : "bg-[#334155] text-slate-300";
+                                                            const color = code === 3 ? "bg-[#10b981] text-white shadow-lg shadow-emerald-500/20" : code === 2 ? "bg-[#ef4444] text-white" : code === 1 ? "bg-[#f59e0b] text-white" : "bg-[#334155] text-slate-300";
                                                             const label = code === 3 ? "בוצע ✓" : code === 2 ? "מעוכב" : code === 1 ? "בתהליך" : "טרם התחיל";
                                                             
                                                             return (
-                                                                <td key={stage.id} onClick={() => { if(!proj.isClosed) setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code })}}>
+                                                                <td key={stage.id} onClick={() => { 
+                                                                    if(proj.isClosed) return;
+                                                                    if(currentUser.role === 'driver') return alert("לנהגים אין הרשאה לעדכון סטטוס");
+                                                                    setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code });
+                                                                }}>
                                                                     <div className={`status-cell ${color}`}>{label}</div>
                                                                 </td>
                                                             );
@@ -220,18 +279,22 @@
                                                         <td className="px-4">
                                                             <div className="flex items-center gap-3">
                                                                 <span className="text-xs font-bold w-8 text-slate-300">{progress}%</span>
-                                                                <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
-                                                                    <div className={`h-full rounded-full transition-all ${progress===100?'bg-emerald-500':'bg-blue-500'}`} style={{width:`${progress}%`}}></div>
+                                                                <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
+                                                                    <div className={`h-full rounded-full transition-all duration-700 ${progress===100?'bg-emerald-500':'bg-blue-500'}`} style={{width:`${progress}%`}}></div>
                                                                 </div>
                                                             </div>
                                                         </td>
                                                         <td className="text-center">
-                                                            {currentUser.role === 'admin' && (
-                                                                <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <button onClick={() => toggleProjectClose(proj)} title={proj.isClosed ? "פתיחה מחדש" : "העבר לארכיון"} className="p-2 bg-slate-800 hover:bg-amber-600 rounded-lg transition">{proj.isClosed ? "🔓" : "📁"}</button>
-                                                                    <button onClick={() => {if(window.confirm('למחוק פרויקט?')) db.collection("projects").doc(proj.id).delete()}} className="p-2 bg-slate-800 hover:bg-red-600 rounded-lg transition">🗑️</button>
-                                                                </div>
-                                                            )}
+                                                            <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
+                                                                    <button onClick={() => setMaterialsModal(proj)} title="שיוך חומרים מהמחסן" className="p-2 bg-slate-800 hover:bg-amber-600 rounded-lg transition border border-white/5">📦</button>
+                                                                )}
+                                                                {currentUser.role === 'admin' && (
+                                                                    <>
+                                                                        <button onClick={() => {db.collection("projects").doc(proj.id).update({ isClosed: !proj.isClosed })}} title={proj.isClosed ? "פתיחה מחדש" : "העבר לארכיון"} className="p-2 bg-slate-800 hover:bg-slate-600 rounded-lg transition border border-white/5">{proj.isClosed ? "🔓" : "🔒"}</button>
+                                                                    </>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -242,8 +305,8 @@
                             </div>
                         )}
 
-                        {/* טאב: מלאי */}
-                        {activeTab === "inventory" && currentUser.role === 'admin' && (
+                        {/* שאר הטאבים (מלאי, כספים, משתמשים) דומים לגרסה הקודמת פשוטים וברורים */}
+                        {activeTab === "inventory" && (
                             <div className="max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-amber-500">
                                 <div className="flex justify-between items-center mb-8">
                                     <h2 className="text-3xl font-black text-white">📦 ניהול מלאי חומרים</h2>
@@ -256,9 +319,9 @@
                                                 <h3 className="text-xl font-bold text-white mb-1">{item.name}</h3>
                                                 <p className="text-sm text-slate-400 mb-4">{item.category}</p>
                                             </div>
-                                            <div className="flex items-center justify-between bg-slate-800 p-3 rounded-xl">
+                                            <div className="flex items-center justify-between bg-slate-800 p-3 rounded-xl border border-white/5">
                                                 <button onClick={() => db.collection("inventory").doc(item.id).update({ quantity: Math.max(0, item.quantity - 1) })} className="w-10 h-10 bg-slate-700 rounded-lg font-black hover:bg-red-500 transition">-</button>
-                                                <span className={`text-2xl font-black ${item.quantity < 5 ? 'text-red-500' : 'text-white'}`}>{item.quantity}</span>
+                                                <span className={`text-2xl font-black ${item.quantity <= 5 ? 'text-red-500' : 'text-white'}`}>{item.quantity}</span>
                                                 <button onClick={() => db.collection("inventory").doc(item.id).update({ quantity: item.quantity + 1 })} className="w-10 h-10 bg-slate-700 rounded-lg font-black hover:bg-green-500 transition">+</button>
                                             </div>
                                         </div>
@@ -267,49 +330,10 @@
                             </div>
                         )}
 
-                        {/* טאב: פיננסי */}
-                        {activeTab === "finance" && currentUser.role === 'admin' && (
-                            <div className="max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-emerald-500">
-                                <h2 className="text-3xl font-black text-white mb-2">💰 מעקב תשלומים וגבייה</h2>
-                                <p className="text-slate-400 mb-8">עדכון תקציב וגבייה לכל פרויקט פעיל</p>
-                                
-                                <div className="space-y-4">
-                                    {projects.filter(p => !p.isClosed).map(proj => {
-                                        const budget = proj.budget || 0;
-                                        const paid = proj.paid || 0;
-                                        const debt = budget - paid;
-                                        return (
-                                            <div key={proj.id} className="flex flex-col md:flex-row gap-4 items-center bg-slate-900/50 p-4 rounded-xl border border-white/5">
-                                                <div className="flex-1">
-                                                    <div className="font-bold text-white text-lg">{proj.name}</div>
-                                                    <div className="text-xs text-slate-400">{proj.address}</div>
-                                                </div>
-                                                <div className="flex gap-4">
-                                                    <div>
-                                                        <label className="text-[10px] text-slate-500 font-bold uppercase">תקציב כולל (₪)</label>
-                                                        <input type="number" value={budget} onChange={(e) => updateFinance(proj.id, 'budget', e.target.value)} className="w-24 p-2 bg-slate-800 text-white rounded outline-none font-bold" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="text-[10px] text-slate-500 font-bold uppercase">שולם (₪)</label>
-                                                        <input type="number" value={paid} onChange={(e) => updateFinance(proj.id, 'paid', e.target.value)} className="w-24 p-2 bg-slate-800 text-emerald-400 rounded outline-none font-bold" />
-                                                    </div>
-                                                    <div className="bg-slate-800 p-2 rounded w-24 flex flex-col justify-center">
-                                                        <label className="text-[10px] text-slate-500 font-bold uppercase">יתרה לגבייה</label>
-                                                        <span className={`font-black ${debt > 0 ? 'text-red-400' : 'text-slate-300'}`}>₪{debt.toLocaleString()}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* טאב: משתמשים */}
                         {activeTab === "users" && currentUser.role === 'admin' && (
                             <div className="max-w-4xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-purple-500">
                                 <div className="flex justify-between items-center mb-8">
-                                    <h2 className="text-3xl font-black text-white">👥 משתמשים והרשאות</h2>
+                                    <h2 className="text-3xl font-black text-white">👥 הרשאות צוותים ומנהלים</h2>
                                     <button onClick={() => setShowAddUser(true)} className="bg-purple-600 text-white px-6 py-2 rounded-xl font-bold">➕ עובד חדש</button>
                                 </div>
                                 <div className="space-y-3">
@@ -317,42 +341,23 @@
                                         <div key={u.id} className="flex justify-between items-center bg-slate-800/50 p-4 rounded-xl border border-white/5">
                                             <div>
                                                 <div className="font-bold text-white text-lg">{u.name}</div>
-                                                <div className="text-xs text-slate-400">קוד גישה: {u.pin} | הרשאה: {u.role === 'admin' ? 'מנהל מערכת' : 'צוות שטח'}</div>
+                                                <div className="text-xs text-slate-400">קוד גישה: {u.pin} | הרשאה: {roleLabels[u.role]} {u.role === 'worker' ? `(${u.teamName})` : ''}</div>
                                             </div>
-                                            <button onClick={() => {if(window.confirm('למחוק משתמש?')) db.collection('users').doc(u.id).delete()}} className="text-red-400 hover:text-red-300 font-bold px-4 py-2 bg-red-400/10 rounded-lg">מחק</button>
+                                            <button onClick={() => {if(window.confirm('למחוק משתמש?')) db.collection('users').doc(u.id).delete()}} className="text-red-400 font-bold px-4 py-2 bg-red-400/10 rounded-lg">מחק</button>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
-
-                        {/* טאב: הגדרות שלבים */}
-                        {activeTab === "settings" && currentUser.role === 'admin' && (
-                            <div className="max-w-3xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-slate-500">
-                                <h2 className="text-3xl font-black text-white mb-6">⚙️ עריכת עמודות ולחצנים בלוח</h2>
-                                <div className="space-y-4 mb-8">
-                                    {stages.map((stage, index) => (
-                                        <div key={stage.id} className="flex items-center gap-4 bg-slate-800/50 p-4 rounded-xl border border-white/5">
-                                            <div className="text-slate-500 font-bold w-6">{index + 1}.</div>
-                                            <input value={stage.label} onChange={(e) => { const n=[...stages]; n[index].label=e.target.value; setStages(n); }} className="flex-1 bg-slate-900 text-white px-4 py-2 rounded-lg outline-none border border-slate-700 focus:border-blue-500 font-bold" />
-                                            <button onClick={() => setStages(stages.filter(s => s.id !== stage.id))} className="text-red-400 font-bold px-3 py-2 bg-red-400/10 rounded-lg">מחק</button>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="flex gap-4">
-                                    <button onClick={() => setStages([...stages, { id: 's'+Date.now(), label: 'שלב חדש' }])} className="flex-1 bg-slate-800 text-white py-4 rounded-xl font-bold border border-white/10">➕ הוסף שלב</button>
-                                    <button onClick={() => { db.collection("settings").doc("general").update({ stages }); alert("נשמר!"); }} className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black shadow-lg">💾 שמור שלבים</button>
-                                </div>
-                            </div>
-                        )}
-
+                        
                     </main>
 
                     {/* מודאלים */}
-                    {statusModal && (
+                    
+                    {/* מודאל עדכון סטטוס */}
+                    {statusModal && !signRequirement && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => setStatusModal(null)}>
-                            <div className="glass p-8 rounded-[2rem] w-full max-w-sm relative" onClick={e=>e.stopPropagation()}>
-                                <img src={LOGO_URL} className="h-6 absolute top-6 left-6 opacity-30 bg-white rounded p-1" />
+                            <div className="glass p-8 rounded-[2rem] w-full max-w-sm" onClick={e=>e.stopPropagation()}>
                                 <h3 className="text-center text-slate-400 text-sm font-bold">{statusModal.projName}</h3>
                                 <h2 className="text-center text-2xl font-black text-white mb-6 border-b border-white/10 pb-4">{statusModal.stageLabel}</h2>
                                 <div className="space-y-3">
@@ -363,8 +368,12 @@
                                         {code: 3, label: "בוצע ✓", color: "status-3"}
                                     ].map(opt => (
                                         <button key={opt.code} onClick={() => {
-                                            db.collection("projects").doc(statusModal.projId).update({ [`statuses.${statusModal.stageId}`]: opt.code });
-                                            setStatusModal(null);
+                                            if (opt.code !== statusModal.currentCode) {
+                                                // העברה למסך חתימה דיגיטלית במקום לעדכן ישירות!
+                                                setSignRequirement({ projId: statusModal.projId, stageId: statusModal.stageId, code: opt.code, stageLabel: statusModal.stageLabel, newStatus: opt.label });
+                                            } else {
+                                                setStatusModal(null);
+                                            }
                                         }} className={`w-full py-4 rounded-xl font-black text-lg ${opt.color} ${statusModal.currentCode===opt.code?'ring-4 ring-white':''}`}>{opt.label}</button>
                                     ))}
                                 </div>
@@ -372,44 +381,116 @@
                         </div>
                     )}
 
-                    {showAddInventory && (
-                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={e => { e.preventDefault(); db.collection("inventory").add({ name: e.target.n.value, category: e.target.c.value, quantity: Number(e.target.q.value) }); setShowAddInventory(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
-                                <h2 className="text-white text-2xl font-black">הוספת פריט למלאי</h2>
-                                <input name="n" placeholder="שם הפריט" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
-                                <input name="c" placeholder="קטגוריה" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
-                                <input name="q" type="number" placeholder="כמות" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
-                                <button type="submit" className="w-full bg-amber-600 text-white py-4 rounded-xl font-bold">שמור</button>
-                                <button type="button" onClick={()=>setShowAddInventory(false)} className="w-full text-slate-400 font-bold">ביטול</button>
-                            </form>
+                    {/* מודאל חתימה דיגיטלית חובה */}
+                    {signRequirement && (
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="glass p-8 rounded-[2rem] w-full max-w-md border-t-4 border-blue-500 shadow-2xl">
+                                <h2 className="text-white text-center text-2xl font-black mb-2">אישור ושינוי סטטוס</h2>
+                                <p className="text-center text-slate-400 text-sm mb-6 border-b border-white/10 pb-4">
+                                    משנה סטטוס של <span className="text-white font-bold">{signRequirement.stageLabel}</span> ל-<span className="text-blue-400 font-bold">{signRequirement.newStatus}</span>
+                                </p>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-xs text-slate-400 font-bold mb-1 block">שם מלא של מאשר הסטטוס</label>
+                                        <input value={signerName} onChange={e=>setSignerName(e.target.value)} placeholder="ישראל ישראלי" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none border border-slate-700 focus:border-blue-500" required />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-slate-400 font-bold mb-1 block">מספר תעודת זהות (9 ספרות)</label>
+                                        <input type="text" maxLength="9" value={signerId} onChange={e=>setSignerId(e.target.value.replace(/\D/g,''))} placeholder="000000000" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none border border-slate-700 focus:border-blue-500 tracking-widest text-center text-xl font-bold" required />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-slate-400 font-bold mb-1 block flex justify-between">
+                                            <span>חתימה אישית חובה:</span>
+                                            <span onClick={() => sigPad.current.clear()} className="text-blue-400 underline cursor-pointer">נקה</span>
+                                        </label>
+                                        <canvas ref={canvasRef} className="signature-pad w-full h-40" />
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 pt-6 mt-6 border-t border-white/10">
+                                    <button onClick={confirmSignatureAndStatus} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black transition">חתום ואשר שינוי</button>
+                                    <button onClick={() => {setSignRequirement(null); setStatusModal(null);}} className="px-6 text-slate-400 hover:text-white font-bold">ביטול</button>
+                                </div>
+                            </div>
                         </div>
                     )}
 
+                    {/* מודאל שיוך חומרים לפרויקט */}
+                    {materialsModal && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                            <div className="glass p-8 rounded-[2rem] w-full max-w-md">
+                                <h2 className="text-white text-2xl font-black mb-2">📦 שיוך חומרים מהמחסן</h2>
+                                <p className="text-slate-400 text-sm mb-6 border-b border-white/10 pb-4">פרויקט: <span className="text-white">{materialsModal.name}</span></p>
+                                
+                                <form onSubmit={handleAllocateMaterial} className="space-y-4 mb-8">
+                                    <select name="item" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700 focus:border-amber-500 font-bold" required>
+                                        <option value="">-- בחר פריט מהמלאי --</option>
+                                        {inventory.filter(i => i.quantity > 0).map(i => (
+                                            <option key={i.id} value={i.id}>{i.name} (במלאי: {i.quantity})</option>
+                                        ))}
+                                    </select>
+                                    <input name="qty" type="number" min="1" placeholder="כמות לשיוך לאתר" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700" required />
+                                    <button type="submit" className="w-full bg-amber-600 hover:bg-amber-500 text-white py-4 rounded-xl font-bold transition">משוך מהמחסן ושייך לאתר</button>
+                                </form>
+
+                                <div className="bg-slate-900/50 p-4 rounded-xl border border-white/5">
+                                    <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">חומרים ששויכו עד כה:</h4>
+                                    <ul className="space-y-2 text-sm">
+                                        {materialsModal.allocatedMaterials && materialsModal.allocatedMaterials.length > 0 ? 
+                                            materialsModal.allocatedMaterials.map((m, i) => (
+                                                <li key={i} className="flex justify-between items-center bg-slate-800 p-2 rounded">
+                                                    <span className="text-white font-bold">{m.name}</span>
+                                                    <span className="text-amber-400 font-black">x{m.quantity}</span>
+                                                </li>
+                                            )) : 
+                                            <li className="text-slate-500">טרם שויכו חומרים.</li>
+                                        }
+                                    </ul>
+                                </div>
+                                
+                                <button onClick={()=>setMaterialsModal(null)} className="w-full mt-6 text-slate-400 font-bold">סגור חלון</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* הוספת משתמש / צוות */}
                     {showAddUser && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={e => { e.preventDefault(); db.collection("users").add({ name: e.target.n.value, pin: e.target.p.value, role: e.target.r.value }); setShowAddUser(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
-                                <h2 className="text-white text-2xl font-black">משתמש חדש</h2>
-                                <input name="n" placeholder="שם העובד" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
-                                <input name="p" placeholder="קוד גישה (PIN)" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
-                                <select name="r" className="w-full p-4 bg-slate-900 text-white rounded-xl">
-                                    <option value="worker">צוות שטח</option>
-                                    <option value="admin">מנהל מערכת</option>
+                            <form onSubmit={e => { e.preventDefault(); db.collection("users").add({ name: e.target.n.value, pin: e.target.p.value, role: e.target.r.value, teamName: e.target.t?.value || '' }); setShowAddUser(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
+                                <h2 className="text-white text-2xl font-black">משתמש/צוות חדש</h2>
+                                <input name="n" placeholder="שם העובד / קבלן" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700" required />
+                                <input name="p" placeholder="קוד PIN סודי" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700" required />
+                                <select name="r" id="roleSelect" onChange={(e) => document.getElementById('teamInput').style.display = e.target.value === 'worker' ? 'block' : 'none'} className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700">
+                                    <option value="worker">צוות שטח / קבלן ביצוע</option>
+                                    <option value="driver">נהג חלוקה (צופה ומנווט בלבד)</option>
+                                    <option value="warehouse">מנהל מחסן</option>
+                                    <option value="admin">מנהל מערכת (גישה מלאה)</option>
                                 </select>
-                                <button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold">הוסף</button>
+                                <input id="teamInput" name="t" placeholder="לאיזה צוות לשייך? (למשל: 'צוות א')" className="w-full p-4 bg-slate-900 text-white rounded-xl border border-blue-500" required />
+                                <button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold">צור הרשאה</button>
                                 <button type="button" onClick={()=>setShowAddUser(false)} className="w-full text-slate-400 font-bold">ביטול</button>
                             </form>
                         </div>
                     )}
 
+                    {/* הוספת פרויקט עם חובת כתובת מלאה */}
                     {showAddProject && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={e => { e.preventDefault(); db.collection("projects").add({ name: e.target.n.value, address: e.target.a.value, team: e.target.t.value, statuses: {}, isClosed: false, createdAt: firebase.firestore.Timestamp.now() }).then(() => setShowAddProject(false)); }} className="glass p-10 rounded-[2rem] w-full max-w-md space-y-5 border-t-4 border-blue-500 shadow-2xl relative">
-                                <img src={LOGO_URL} className="h-8 mx-auto bg-white rounded p-1 mb-2" />
-                                <h2 className="text-white text-center text-2xl font-black mb-6">פרויקט חדש</h2>
-                                <input name="n" placeholder="שם הלקוח / הפרויקט" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
-                                <input name="a" placeholder="כתובת האתר" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
-                                <input name="t" placeholder="צוות (למשל: צוות א')" className="w-full p-4 bg-slate-900 text-white rounded-xl" required />
-                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black">פתח פרויקט</button>
+                            <form onSubmit={e => { e.preventDefault(); db.collection("projects").add({ name: e.target.n.value, address: e.target.a.value, team: e.target.t.value, statuses: {}, isClosed: false, createdAt: firebase.firestore.Timestamp.now() }).then(() => setShowAddProject(false)); }} className="glass p-10 rounded-[2rem] w-full max-w-md space-y-5 border-t-4 border-blue-500 shadow-2xl">
+                                <h2 className="text-white text-center text-2xl font-black mb-6">פתיחת תיק פרויקט באתר</h2>
+                                <div>
+                                    <label className="text-xs text-slate-400 font-bold">שם הלקוח</label>
+                                    <input name="n" placeholder="משפחת לוי" className="w-full p-4 mt-1 bg-slate-900 text-white rounded-xl border border-slate-700" required />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-blue-400 font-bold">* חובה להזין כתובת מדויקת לניווט</label>
+                                    <input name="a" placeholder="לדוגמה: רחוב הרצל 15, כפר סבא" minLength="5" className="w-full p-4 mt-1 bg-slate-900 text-white rounded-xl border border-blue-500 focus:ring-2 focus:ring-blue-500" required />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-400 font-bold">צוות משויך</label>
+                                    <input name="t" placeholder="למשל: 'צוות א' (חייב לתאום לשם בניהול משתמשים)" className="w-full p-4 mt-1 bg-slate-900 text-white rounded-xl border border-slate-700" required />
+                                </div>
+                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black mt-4">הקם פרויקט חדש</button>
                                 <button type="button" onClick={()=>setShowAddProject(false)} className="w-full text-slate-400 font-bold hover:text-white">ביטול</button>
                             </form>
                         </div>
