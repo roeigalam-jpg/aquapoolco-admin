@@ -64,7 +64,6 @@
             const [stages, setStages] = useState([]);
             const [statusLabels, setStatusLabels] = useState({ 0: "טרם התחיל", 1: "בתהליך", 2: "מעוכב ⚠️", 3: "בוצע ✓" });
             
-            // הגדרות מתקדמות דינמיות
             const [appColor, setAppColor] = useState("#3b82f6");
             const [appFont, setAppFont] = useState("system-ui");
             const [portalName, setPortalName] = useState("אקוופולקו חן בע\"מ");
@@ -122,7 +121,6 @@
 
             const handleLogin = (e) => {
                 e.preventDefault();
-                // שינוי לשם משתמש של רועי
                 if (loginUsername === "roeigalam" && loginPassword === "2026") {
                     setCurrentUser({ name: "רועי גלם (מנכ''ל)", username: "roeigalam", role: "admin", department: "הנהלה" });
                     return;
@@ -132,23 +130,21 @@
                 else alert("שם משתמש או סיסמה שגויים. נסה שנית.");
             };
 
-            // פונקציית ייצוא PDF
-            const exportPDF = (proj) => {
+            const exportPDF = (proj, callback = null) => {
                 const element = document.createElement('div');
                 
-                // בונים HTML ייעודי שייראה מעולה ב-PDF
                 let milestonesHtml = stages.map(stage => {
                     const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
                     const sig = proj.signatures && proj.signatures[stage.id];
                     let signatureImage = '';
                     if (sig && sig.signatureData) {
-                        signatureImage = `<tr><td colspan="4" style="text-align:center; padding: 10px; border-bottom: 1px solid #ddd;"><img src="${sig.signatureData}" style="max-height: 80px; border: 1px solid #ccc; border-radius: 4px;" /></td></tr>`;
+                        signatureImage = `<tr><td colspan="4" style="text-align:center; padding: 10px; border-bottom: 1px solid #ddd;"><img src="${sig.signatureData}" style="max-height: 80px; border: 1px solid #ccc; border-radius: 4px;" crossorigin="anonymous" /></td></tr>`;
                     }
                     return `
                         <tr>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${stage.label}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${stage.label}</td>
                             <td style="padding: 10px; border-bottom: 1px solid #ddd;">${statusLabels[code]}</td>
-                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? `${sig.name}<br/><small style="color:gray;">ת.ז: ${sig.id}</small>` : '-'}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? `${sig.name}<br/><span style="color:gray; font-size: 10px;">ת.ז: ${sig.id}</span>` : '-'}</td>
                             <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? new Date(sig.date).toLocaleString('he-IL') : '-'}</td>
                         </tr>
                         ${signatureImage}
@@ -156,25 +152,28 @@
                 }).join('');
 
                 element.innerHTML = `
-                    <div style="direction: rtl; font-family: sans-serif; padding: 40px; color: #333;">
-                        <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px;">${portalName} - דוח סטטוס פרויקט</h1>
-                        <h2 style="text-align: center; margin-top: 20px;">פרויקט: ${proj.name}</h2>
+                    <div style="direction: rtl; font-family: Arial, sans-serif; padding: 40px; color: #333; letter-spacing: 0px; word-spacing: 2px;">
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <img src="${LOGO_URL}" style="max-height: 100px;" crossorigin="anonymous" />
+                        </div>
+                        <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px; font-size: 24px;">${portalName} - דוח סטטוס פרויקט</h1>
+                        <h2 style="text-align: center; margin-top: 20px; font-size: 20px;">פרויקט: ${proj.name}</h2>
                         
-                        <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px;">
-                            <p><strong>📍 כתובת האתר:</strong> ${proj.address}</p>
-                            <p><strong>👷 מחלקה מבצעת:</strong> ${proj.department || 'כללי'}</p>
-                            <p><strong>📧 אימייל לקוח:</strong> ${proj.clientEmail || 'לא הוזן'}</p>
-                            <p><strong>📅 תאריך הפקת דוח:</strong> ${new Date().toLocaleString('he-IL')}</p>
+                        <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 14px; border: 1px solid #e2e8f0;">
+                            <p style="margin: 5px 0;"><strong>כתובת האתר:</strong> ${proj.address}</p>
+                            <p style="margin: 5px 0;"><strong>מחלקה מבצעת:</strong> ${proj.department || 'כללי'}</p>
+                            <p style="margin: 5px 0;"><strong>אימייל לקוח:</strong> ${proj.clientEmail || 'לא הוזן'}</p>
+                            <p style="margin: 5px 0;"><strong>תאריך הפקת דוח:</strong> ${new Date().toLocaleString('he-IL')}</p>
                         </div>
 
-                        <h3 style="color: #475569; margin-bottom: 15px;">אבני דרך, סטטוסים וחתימות מאשרים:</h3>
-                        <table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0;">
+                        <h3 style="color: #475569; margin-bottom: 15px; font-size: 16px;">פירוט אבני דרך וחתימות:</h3>
+                        <table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0; font-size: 14px;">
                             <thead>
                                 <tr style="background-color: ${appColor}; color: white;">
-                                    <th style="padding: 12px;">שלב עבודה</th>
-                                    <th style="padding: 12px;">סטטוס מעודכן</th>
-                                    <th style="padding: 12px;">איש קשר מאשר</th>
-                                    <th style="padding: 12px;">תאריך חתימה</th>
+                                    <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב עבודה</th>
+                                    <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">סטטוס</th>
+                                    <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">מאשר</th>
+                                    <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">תאריך</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -190,10 +189,13 @@
                     margin:       10,
                     filename:     `דוח_פרויקט_${proj.name.replace(/ /g, '_')}.pdf`,
                     image:        { type: 'jpeg', quality: 0.98 },
-                    html2canvas:  { scale: 2 },
+                    html2canvas:  { scale: 2, useCORS: true, letterRendering: true }, 
                     jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
                 };
-                html2pdf().set(opt).from(element).save();
+                
+                html2pdf().set(opt).from(element).save().then(() => {
+                    if (callback) callback();
+                });
             };
 
             const confirmSignatureAndStatus = () => {
@@ -249,14 +251,15 @@
                 
                 db.collection("projects").doc(finishModal.id).update({ isFinished: true, finishedAt: new Date().toISOString() });
                 
-                // מפיק PDF במקביל למייל
-                exportPDF(proj);
-                
-                const subject = `פרויקט הסתיים והועבר לארכיון: ${finishModal.name}`;
-                const body = `שלום,\n\nהפרויקט ${finishModal.name} (בכתובת: ${finishModal.address}) סומן כרגע כ"הסתיים" במערכת ה-ERP.\n\nמצ"ב במייל דוח PDF (אנא צרף ידנית את הקובץ שירד כרגע למחשב).\n\nבברכה,\n${portalName}`;
+                const subject = `פרויקט הסתיים: ${finishModal.name}`;
+                const body = `שלום,\n\nהפרויקט ${finishModal.name} (בכתובת: ${finishModal.address}) סומן כ"הסתיים" במערכת ה-ERP.\n\n*שים לב: מצורף לדוא"ל זה קובץ ה-PDF שירד כרגע למחשב שלך. אנא הוסף אותו באופן ידני לפני השליחה.*\n\nבברכה,\n${portalName}`;
                 
                 let ccString = ccOffice ? officeEmail : "";
-                window.location.href = `mailto:${toEmail}?cc=${ccString}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                const mailtoLink = `mailto:${toEmail}?cc=${ccString}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                
+                exportPDF(proj, () => {
+                    window.location.href = mailtoLink;
+                });
                 
                 setFinishModal(null);
             };
@@ -264,6 +267,18 @@
             const deleteProject = (projId) => {
                 if (window.confirm("שים לב! זוהי מחיקה לצמיתות (לא לארכיון!). הפרויקט יימחק ממסד הנתונים לחלוטין. להמשיך?")) {
                     db.collection("projects").doc(projId).delete();
+                }
+            };
+            
+            // פונקציה לעריכת מחלקה על ידי מנהל
+            const handleEditDepartment = (proj) => {
+                if (currentUser.role !== 'admin') return;
+                const currentDept = proj.department || 'כללי';
+                const newDept = window.prompt(`ערוך שיוך מחלקה לפרויקט "${proj.name}":\n(משתמשי שטח השייכים למחלקה זו בלבד יראו את הפרויקט)`, currentDept);
+                
+                if (newDept !== null) {
+                    const finalDept = newDept.trim() || 'כללי';
+                    db.collection("projects").doc(proj.id).update({ department: finalDept });
                 }
             };
 
@@ -385,8 +400,13 @@
                                                                 <span className="text-xs text-slate-400">📍 {proj.address}</span>
                                                                 <a href={`waze://?q=${encodeURIComponent(proj.address)}&navigate=yes`} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition flex items-center gap-1">🚗 Waze</a>
                                                             </div>
-                                                            <div className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded text-[10px] font-bold inline-block border border-white/5">
-                                                                מחלקה: {proj.department || 'כללי'}
+                                                            {/* הוספת יכולת העריכה למנהל */}
+                                                            <div 
+                                                                onClick={() => currentUser.role === 'admin' ? handleEditDepartment(proj) : null}
+                                                                className={`bg-slate-800 px-2 py-0.5 rounded text-[10px] font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer hover:bg-slate-700 text-blue-300' : 'text-slate-300'}`}
+                                                                title={currentUser.role === 'admin' ? 'לחץ לשינוי שיוך מחלקה' : ''}
+                                                            >
+                                                                מחלקה: {proj.department || 'כללי'} {currentUser.role === 'admin' && '✏️'}
                                                             </div>
                                                         </td>
                                                         
@@ -452,7 +472,13 @@
                                             <div className="p-6 bg-slate-800/50 flex justify-between items-center border-b border-white/5">
                                                 <div>
                                                     <h3 className="text-xl font-black text-emerald-400 flex items-center gap-2">✅ {proj.name}</h3>
-                                                    <p className="text-sm text-slate-400 mt-1">📍 {proj.address} | מחלקה: {proj.department || 'כללי'}</p>
+                                                    <p className="text-sm text-slate-400 mt-1">📍 {proj.address}</p>
+                                                    <div 
+                                                        onClick={() => currentUser.role === 'admin' ? handleEditDepartment(proj) : null}
+                                                        className={`bg-slate-800 px-2 py-0.5 mt-1 rounded text-[10px] font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer hover:bg-slate-700 text-blue-300' : 'text-slate-300'}`}
+                                                    >
+                                                        מחלקה: {proj.department || 'כללי'} {currentUser.role === 'admin' && '✏️'}
+                                                    </div>
                                                 </div>
                                                 <div className="text-left flex flex-col items-end">
                                                     <p className="text-xs font-bold text-slate-500 uppercase">תאריך סיום פרויקט</p>
@@ -532,7 +558,6 @@
                             </div>
                         )}
 
-                        {/* הנה לשונית המלאי שחזרה במלוא הדרה! */}
                         {activeTab === "inventory" && (
                             <div className="max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-amber-500 animate-fade-in">
                                 <div className="flex justify-between items-center mb-8">
@@ -721,8 +746,8 @@
                                 </p>
                                 <div className="space-y-4">
                                     <div className="bg-blue-900/30 border border-blue-500/30 p-4 rounded-xl mb-4">
-                                        <p className="text-blue-300 text-xs font-bold">📄 המערכת כעת תוריד למחשב שלך דוח PDF מסודר.</p>
-                                        <p className="text-blue-300 text-xs font-bold mt-1">📧 תוכנת המייל תיפתח אוטומטית, עליך לצרף את הדוח וללחוץ "שלח" בתוכנה.</p>
+                                        <p className="text-blue-300 text-xs font-bold">📄 המערכת תוריד הרגע דוח PDF למחשב שלך.</p>
+                                        <p className="text-blue-300 text-xs font-bold mt-1">📧 תוכנת המייל תיפתח אוטומטית, אנא צרף את קובץ ה-PDF ידנית לאימייל לפני השליחה.</p>
                                     </div>
                                     <div>
                                         <label className="text-xs text-slate-400 font-bold block mb-1">לאיזה מייל לשלוח הודעת סיום ללקוח?</label>
