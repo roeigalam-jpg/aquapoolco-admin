@@ -76,6 +76,7 @@
             
             const [showAddProject, setShowAddProject] = useState(false);
             const [showAddUser, setShowAddUser] = useState(false);
+            const [editUserModal, setEditUserModal] = useState(null); // חלון עריכת משתמש
             const [newUserRole, setNewUserRole] = useState("worker"); 
             const [showAddInventory, setShowAddInventory] = useState(false);
             
@@ -270,7 +271,6 @@
                 }
             };
             
-            // פונקציה לעריכת מחלקה על ידי מנהל
             const handleEditDepartment = (proj) => {
                 if (currentUser.role !== 'admin') return;
                 const currentDept = proj.department || 'כללי';
@@ -400,7 +400,6 @@
                                                                 <span className="text-xs text-slate-400">📍 {proj.address}</span>
                                                                 <a href={`waze://?q=${encodeURIComponent(proj.address)}&navigate=yes`} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition flex items-center gap-1">🚗 Waze</a>
                                                             </div>
-                                                            {/* הוספת יכולת העריכה למנהל */}
                                                             <div 
                                                                 onClick={() => currentUser.role === 'admin' ? handleEditDepartment(proj) : null}
                                                                 className={`bg-slate-800 px-2 py-0.5 rounded text-[10px] font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer hover:bg-slate-700 text-blue-300' : 'text-slate-300'}`}
@@ -594,13 +593,17 @@
                                 </div>
                                 <div className="space-y-3">
                                     {users.map(u => (
-                                        <div key={u.id} className="flex justify-between items-center bg-slate-800/50 p-4 rounded-xl border border-white/5">
+                                        <div key={u.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-slate-800/50 p-4 rounded-xl border border-white/5 gap-4">
                                             <div>
                                                 <div className="font-bold text-white text-lg">👤 {u.name}</div>
                                                 <div className="text-xs text-slate-400 mt-1">משתמש: <span className="text-white font-mono">{u.username}</span> | סיסמה: <span className="text-white font-mono">{u.password}</span></div>
                                                 <div className="text-xs text-blue-400 mt-1 font-bold">הרשאה: {roleLabels[u.role]} {u.role === 'worker' ? `(מחלקה: ${u.department})` : ''}</div>
                                             </div>
-                                            <button onClick={() => {if(window.confirm('למחוק משתמש?')) db.collection('users').doc(u.id).delete()}} className="text-red-400 font-bold px-4 py-2 bg-red-400/10 rounded-lg">מחק</button>
+                                            <div className="flex gap-2">
+                                                {/* כפתור העריכה החדש */}
+                                                <button onClick={() => setEditUserModal(u)} className="text-blue-400 font-bold px-4 py-2 bg-blue-400/10 hover:bg-blue-500 hover:text-white rounded-lg transition">ערוך ✏️</button>
+                                                <button onClick={() => {if(window.confirm('למחוק משתמש?')) db.collection('users').doc(u.id).delete()}} className="text-red-400 font-bold px-4 py-2 bg-red-400/10 hover:bg-red-500 hover:text-white rounded-lg transition">מחק 🗑️</button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -736,6 +739,51 @@
                         
                     </main>
 
+                    {/* מודאל עריכת משתמש קיים */}
+                    {editUserModal && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
+                            <form onSubmit={e => { 
+                                e.preventDefault(); 
+                                db.collection("users").doc(editUserModal.id).update({ 
+                                    name: e.target.n.value, 
+                                    username: e.target.u.value, 
+                                    password: e.target.p.value, 
+                                    role: editUserModal.role, 
+                                    department: editUserModal.role === 'worker' ? e.target.d.value : 'הנהלה/מטה' 
+                                }); 
+                                setEditUserModal(null); 
+                            }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4 shadow-2xl" style={{ borderTop: `4px solid ${appColor}` }}>
+                                <h2 className="text-white text-2xl font-black mb-2">עריכת משתמש מערכת</h2>
+                                
+                                <input name="n" defaultValue={editUserModal.name} placeholder="שם העובד (מוצג במערכת)" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-slate-700 outline-none focus:border-blue-500" required />
+                                
+                                <div className="flex gap-2">
+                                    <input name="u" defaultValue={editUserModal.username} placeholder="שם משתמש" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-blue-500 outline-none" required />
+                                    <input name="p" defaultValue={editUserModal.password} placeholder="סיסמה" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-blue-500 outline-none" required />
+                                </div>
+                                
+                                <select value={editUserModal.role} onChange={(e) => setEditUserModal({...editUserModal, role: e.target.value})} className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700 mt-2 outline-none">
+                                    <option value="worker">צוות שטח (מורשה מחלקה ספציפית)</option>
+                                    <option value="driver">נהג חלוקה (רואה הכל)</option>
+                                    <option value="warehouse">מנהל מחסן (רואה הכל)</option>
+                                    <option value="admin">מנהל מערכת (גישה מלאה להכל)</option>
+                                </select>
+                                
+                                {editUserModal.role === 'worker' && (
+                                    <div>
+                                        <label className="text-xs text-emerald-400 font-bold mb-1 block">שיוך מחלקתי (חובה)</label>
+                                        <input name="d" defaultValue={editUserModal.department !== 'הנהלה/מטה' ? editUserModal.department : ''} placeholder="למשל: 'מחלקת טיח'" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-emerald-500 outline-none" required />
+                                    </div>
+                                )}
+                                
+                                <div className="flex gap-3 pt-2">
+                                    <button type="submit" className="flex-1 theme-bg text-white py-3 rounded-xl font-bold transition filter hover:brightness-110 shadow-lg">שמור שינויים</button>
+                                    <button type="button" onClick={()=>setEditUserModal(null)} className="px-6 text-slate-400 font-bold hover:text-white transition">ביטול</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
                     {/* חלון סיום והעברה לארכיון (הכפתור הירוק ✅) */}
                     {finishModal && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
@@ -806,14 +854,14 @@
                         </div>
                     )}
 
-                    {/* הוספת משתמש */}
+                    {/* יצירת משתמש */}
                     {showAddUser && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
                             <form onSubmit={e => { 
                                 e.preventDefault(); 
                                 db.collection("users").add({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, role: newUserRole, department: newUserRole === 'worker' ? e.target.d.value : 'הנהלה/מטה' }); 
                                 setShowAddUser(false); 
-                            }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4">
+                            }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4 shadow-2xl" style={{ borderTop: `4px solid ${appColor}` }}>
                                 <h2 className="text-white text-2xl font-black mb-2">משתמש חדש במערכת</h2>
                                 <input name="n" placeholder="שם העובד (מוצג במערכת)" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-slate-700" required />
                                 <div className="flex gap-2">
@@ -832,12 +880,15 @@
                                         <input name="d" placeholder="למשל: 'מחלקת טיח'" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-emerald-500" required />
                                     </div>
                                 )}
-                                <button type="submit" className="w-full theme-bg text-white py-4 rounded-xl font-bold mt-4">צור הרשאה</button>
-                                <button type="button" onClick={()=>setShowAddUser(false)} className="w-full text-slate-400 font-bold">ביטול</button>
+                                <div className="flex gap-3 pt-2">
+                                    <button type="submit" className="flex-1 theme-bg text-white py-3 rounded-xl font-bold transition filter hover:brightness-110 shadow-lg">צור משתמש</button>
+                                    <button type="button" onClick={()=>setShowAddUser(false)} className="px-6 text-slate-400 font-bold hover:text-white transition">ביטול</button>
+                                </div>
                             </form>
                         </div>
                     )}
 
+                    {/* מלאי וחומרים נשארו ללא שינוי... */}
                     {showAddInventory && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
                             <form onSubmit={e => { e.preventDefault(); db.collection("inventory").add({ name: e.target.n.value, category: e.target.c.value, quantity: Number(e.target.q.value) }); setShowAddInventory(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4 border-t-4 border-amber-500">
