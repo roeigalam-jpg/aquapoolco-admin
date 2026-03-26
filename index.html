@@ -63,8 +63,12 @@
             const [projects, setProjects] = useState([]);
             const [stages, setStages] = useState([]);
             const [statusLabels, setStatusLabels] = useState({ 0: "טרם התחיל", 1: "בתהליך", 2: "מעוכב ⚠️", 3: "בוצע ✓" });
+            
+            // הגדרות מתקדמות דינמיות
             const [appColor, setAppColor] = useState("#3b82f6");
             const [appFont, setAppFont] = useState("system-ui");
+            const [portalName, setPortalName] = useState("אקוופולקו חן בע\"מ");
+            const [officeEmail, setOfficeEmail] = useState("info@aquapoolco.co.il");
             
             const [users, setUsers] = useState([]);
             const [inventory, setInventory] = useState([]);
@@ -77,7 +81,7 @@
             const [showAddInventory, setShowAddInventory] = useState(false);
             
             const [statusModal, setStatusModal] = useState(null);
-            const [finishModal, setFinishModal] = useState(null); // חלון חדש לסיום פרויקט
+            const [finishModal, setFinishModal] = useState(null); 
             
             const [signRequirement, setSignRequirement] = useState(null);
             const sigPad = useRef(null);
@@ -95,6 +99,8 @@
                         if (d.statusLabels) setStatusLabels(d.statusLabels);
                         if (d.appColor) setAppColor(d.appColor);
                         if (d.appFont) setAppFont(d.appFont);
+                        if (d.portalName) setPortalName(d.portalName);
+                        if (d.officeEmail) setOfficeEmail(d.officeEmail);
                     }
                 });
                 db.collection("projects").orderBy("createdAt", "desc").onSnapshot(snapshot => {
@@ -116,13 +122,78 @@
 
             const handleLogin = (e) => {
                 e.preventDefault();
-                if (loginUsername === "roee" && loginPassword === "2026") {
-                    setCurrentUser({ name: "רועי (מנכ''ל)", role: "admin", department: "הנהלה" });
+                // שינוי לשם משתמש של רועי
+                if (loginUsername === "roeigalam" && loginPassword === "2026") {
+                    setCurrentUser({ name: "רועי גלם (מנכ''ל)", username: "roeigalam", role: "admin", department: "הנהלה" });
                     return;
                 }
                 const userDoc = users.find(u => u.username === loginUsername && u.password === loginPassword);
                 if (userDoc) setCurrentUser(userDoc);
                 else alert("שם משתמש או סיסמה שגויים. נסה שנית.");
+            };
+
+            // פונקציית ייצוא PDF
+            const exportPDF = (proj) => {
+                const element = document.createElement('div');
+                
+                // בונים HTML ייעודי שייראה מעולה ב-PDF
+                let milestonesHtml = stages.map(stage => {
+                    const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
+                    const sig = proj.signatures && proj.signatures[stage.id];
+                    let signatureImage = '';
+                    if (sig && sig.signatureData) {
+                        signatureImage = `<tr><td colspan="4" style="text-align:center; padding: 10px; border-bottom: 1px solid #ddd;"><img src="${sig.signatureData}" style="max-height: 80px; border: 1px solid #ccc; border-radius: 4px;" /></td></tr>`;
+                    }
+                    return `
+                        <tr>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${stage.label}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${statusLabels[code]}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? `${sig.name}<br/><small style="color:gray;">ת.ז: ${sig.id}</small>` : '-'}</td>
+                            <td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? new Date(sig.date).toLocaleString('he-IL') : '-'}</td>
+                        </tr>
+                        ${signatureImage}
+                    `;
+                }).join('');
+
+                element.innerHTML = `
+                    <div style="direction: rtl; font-family: sans-serif; padding: 40px; color: #333;">
+                        <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px;">${portalName} - דוח סטטוס פרויקט</h1>
+                        <h2 style="text-align: center; margin-top: 20px;">פרויקט: ${proj.name}</h2>
+                        
+                        <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px;">
+                            <p><strong>📍 כתובת האתר:</strong> ${proj.address}</p>
+                            <p><strong>👷 מחלקה מבצעת:</strong> ${proj.department || 'כללי'}</p>
+                            <p><strong>📧 אימייל לקוח:</strong> ${proj.clientEmail || 'לא הוזן'}</p>
+                            <p><strong>📅 תאריך הפקת דוח:</strong> ${new Date().toLocaleString('he-IL')}</p>
+                        </div>
+
+                        <h3 style="color: #475569; margin-bottom: 15px;">אבני דרך, סטטוסים וחתימות מאשרים:</h3>
+                        <table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0;">
+                            <thead>
+                                <tr style="background-color: ${appColor}; color: white;">
+                                    <th style="padding: 12px;">שלב עבודה</th>
+                                    <th style="padding: 12px;">סטטוס מעודכן</th>
+                                    <th style="padding: 12px;">איש קשר מאשר</th>
+                                    <th style="padding: 12px;">תאריך חתימה</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${milestonesHtml}
+                            </tbody>
+                        </table>
+                        
+                        <p style="text-align: center; margin-top: 40px; font-size: 12px; color: #94a3b8;">הופק אוטומטית באמצעות מערכת ה-ERP של ${portalName}</p>
+                    </div>
+                `;
+
+                const opt = {
+                    margin:       10,
+                    filename:     `דוח_פרויקט_${proj.name.replace(/ /g, '_')}.pdf`,
+                    image:        { type: 'jpeg', quality: 0.98 },
+                    html2canvas:  { scale: 2 },
+                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+                html2pdf().set(opt).from(element).save();
             };
 
             const confirmSignatureAndStatus = () => {
@@ -170,18 +241,21 @@
                 db.collection("projects").doc(projId).update({ allocatedMaterials: updatedMaterials });
             };
 
-            // תהליך סיום פרויקט מסודר עם מודאל
             const confirmFinishProject = (e) => {
                 e.preventDefault();
                 const toEmail = e.target.email.value;
                 const ccOffice = e.target.cc.checked;
+                const proj = projects.find(p => p.id === finishModal.id);
                 
                 db.collection("projects").doc(finishModal.id).update({ isFinished: true, finishedAt: new Date().toISOString() });
                 
-                const subject = `פרויקט הסתיים והועבר לארכיון: ${finishModal.name}`;
-                const body = `שלום,\n\nהפרויקט ${finishModal.name} (בכתובת: ${finishModal.address}) סומן כרגע כ"הסתיים" במערכת ה-ERP.\nהפרויקט הועבר לארכיון לצורך תיעוד אבני הדרך והחתימות.\n\nבברכה,\nמערכת אקוופולקו חן`;
+                // מפיק PDF במקביל למייל
+                exportPDF(proj);
                 
-                let ccString = ccOffice ? "office@aquapoolco.co.il" : "";
+                const subject = `פרויקט הסתיים והועבר לארכיון: ${finishModal.name}`;
+                const body = `שלום,\n\nהפרויקט ${finishModal.name} (בכתובת: ${finishModal.address}) סומן כרגע כ"הסתיים" במערכת ה-ERP.\n\nמצ"ב במייל דוח PDF (אנא צרף ידנית את הקובץ שירד כרגע למחשב).\n\nבברכה,\n${portalName}`;
+                
+                let ccString = ccOffice ? officeEmail : "";
                 window.location.href = `mailto:${toEmail}?cc=${ccString}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
                 
                 setFinishModal(null);
@@ -202,10 +276,7 @@
                 const pAddress = p.address || "";
                 const matchesSearch = pName.includes(searchTerm) || pAddress.includes(searchTerm);
                 if (!matchesSearch) return false;
-                
-                if (currentUser && currentUser.role === 'worker') {
-                    return p.department === currentUser.department;
-                }
+                if (currentUser && currentUser.role === 'worker') return p.department === currentUser.department;
                 return true; 
             });
 
@@ -221,7 +292,7 @@
                                 <img src={LOGO_URL} alt="Logo" className="h-20 object-contain rounded-xl bg-white p-2 shadow-lg" onError={(e) => { e.target.style.display='none'; }} />
                             </div>
                             <h1 className="text-2xl font-black mb-1 text-white">כניסה למערכת ERP</h1>
-                            <p className="font-bold mb-8 uppercase text-xs tracking-widest theme-text">אקוופולקו חן בע"מ</p>
+                            <p className="font-bold mb-8 uppercase text-xs tracking-widest theme-text">{portalName}</p>
                             
                             <input type="text" placeholder="שם משתמש" required value={loginUsername} onChange={e=>setLoginUsername(e.target.value)} className="w-full p-4 bg-slate-900 rounded-xl mb-4 text-center text-white outline-none border border-slate-700 focus:border-blue-500 font-bold" />
                             <input type="password" placeholder="סיסמה" required value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} className="w-full p-4 bg-slate-900 rounded-xl mb-6 text-center text-white outline-none border border-slate-700 focus:border-blue-500 font-bold" />
@@ -249,14 +320,14 @@
                             <div className="flex items-center gap-4 border-l border-white/10 pl-6">
                                 <img src={LOGO_URL} alt="Logo" className="h-10 bg-white rounded p-1 object-contain" onError={(e) => e.target.style.display='none'} />
                                 <div>
-                                    <div className="text-lg font-black text-white leading-tight">אקוופולקו חן בע"מ</div>
+                                    <div className="text-lg font-black text-white leading-tight">{portalName}</div>
                                     <div className="text-[10px] font-bold uppercase tracking-widest theme-text">מחובר כ: {currentUser.name} | {roleLabels[currentUser.role]}</div>
                                 </div>
                             </div>
                             <nav className="flex gap-2">
                                 <button onClick={() => setActiveTab("board")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'board' ? 'theme-bg' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📊 לוח עבודה</button>
                                 
-                                <button onClick={() => setActiveTab("archive")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'archive' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📁 ארכיון (הסתיימו)</button>
+                                <button onClick={() => setActiveTab("archive")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'archive' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>📁 ארכיון</button>
 
                                 {(currentUser.role === 'admin' || currentUser.role === 'driver') && (
                                     <button onClick={() => setActiveTab("deliveries")} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'deliveries' ? 'theme-bg' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>🚚 משימות חלוקה</button>
@@ -282,7 +353,6 @@
 
                     <main className="flex-1 p-4 md:p-8">
                         
-                        {/* טאב לוח עבודה */}
                         {activeTab === "board" && (
                             <div className="animate-fade-in max-w-[1600px] mx-auto">
                                 <div className="flex justify-between items-end mb-6 gap-4 flex-wrap">
@@ -345,6 +415,9 @@
                                                         </td>
                                                         <td className="text-center">
                                                             <div className="flex justify-center gap-2 transition-opacity">
+                                                                {currentUser.username === 'roeigalam' && (
+                                                                    <button onClick={() => exportPDF(proj)} title="הפק דוח PDF של הפרויקט" className="p-2 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-lg transition border border-indigo-500/30 text-lg">📄</button>
+                                                                )}
                                                                 <button onClick={() => setMaterialsModal(proj)} title="חומרים באתר" className="p-2 bg-slate-800 hover:bg-amber-600 rounded-lg transition border border-white/5 text-lg">📦</button>
                                                                 
                                                                 {currentUser.role === 'admin' && (
@@ -364,7 +437,6 @@
                             </div>
                         )}
 
-                        {/* טאב ארכיון */}
                         {activeTab === "archive" && (
                             <div className="animate-fade-in max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-slate-500">
                                 <h2 className="text-3xl font-black text-white mb-2">📁 פרויקטים שהסתיימו (ארכיון)</h2>
@@ -382,12 +454,17 @@
                                                     <h3 className="text-xl font-black text-emerald-400 flex items-center gap-2">✅ {proj.name}</h3>
                                                     <p className="text-sm text-slate-400 mt-1">📍 {proj.address} | מחלקה: {proj.department || 'כללי'}</p>
                                                 </div>
-                                                <div className="text-left">
+                                                <div className="text-left flex flex-col items-end">
                                                     <p className="text-xs font-bold text-slate-500 uppercase">תאריך סיום פרויקט</p>
-                                                    <p className="text-white font-bold">{proj.finishedAt ? new Date(proj.finishedAt).toLocaleDateString('he-IL') : 'לא צוין'}</p>
-                                                    {currentUser.role === 'admin' && (
-                                                        <button onClick={() => deleteProject(proj.id)} className="text-xs text-red-400 hover:text-red-300 mt-2 font-bold underline">מחק מהמסד לצמיתות 🗑️</button>
-                                                    )}
+                                                    <p className="text-white font-bold mb-2">{proj.finishedAt ? new Date(proj.finishedAt).toLocaleDateString('he-IL') : 'לא צוין'}</p>
+                                                    <div className="flex gap-2">
+                                                        {currentUser.username === 'roeigalam' && (
+                                                            <button onClick={() => exportPDF(proj)} className="text-xs bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white px-2 py-1 rounded font-bold transition">📄 הפק PDF</button>
+                                                        )}
+                                                        {currentUser.role === 'admin' && (
+                                                            <button onClick={() => deleteProject(proj.id)} className="text-xs bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white px-2 py-1 rounded font-bold transition">מחק מהמסד לצמיתות 🗑️</button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="p-6">
@@ -433,13 +510,60 @@
                             </div>
                         )}
 
-                        {/* טאב משתמשים (נשאר ללא שינוי, עם שם משתמש וסיסמה ממקודם) */}
+                        {activeTab === "deliveries" && (
+                            <div className="max-w-4xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-cyan-500 animate-fade-in">
+                                <h2 className="text-3xl font-black text-white mb-2">🚚 משימות חלוקה לנהגים</h2>
+                                <p className="text-slate-400 mb-8">בקשות אספקה מהמחסן שממתינות להגעה לשטח.</p>
+                                <div className="grid gap-4">
+                                    {projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending').map(m => (
+                                        <div key={`${p.id}-${m.id}`} className="bg-slate-900 p-6 rounded-xl flex flex-col md:flex-row justify-between items-center border border-white/10 gap-4">
+                                            <div>
+                                                <h3 className="font-bold text-xl text-white">{p.name}</h3>
+                                                <p className="text-sm text-slate-400 mb-2">📍 {p.address}</p>
+                                                <p className="text-amber-400 font-black text-lg bg-amber-500/10 px-3 py-1 rounded inline-block">📦 {m.quantity} x {m.name}</p>
+                                            </div>
+                                            <div className="flex gap-3 w-full md:w-auto">
+                                                <a href={`waze://?q=${encodeURIComponent(p.address)}&navigate=yes`} className="bg-slate-800 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-bold transition flex-1 text-center">🚗 Waze</a>
+                                                <button onClick={() => markMaterialDelivered(p.id, m.id)} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3 rounded-xl font-black transition flex-1">סופק ✓</button>
+                                            </div>
+                                        </div>
+                                    )))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* הנה לשונית המלאי שחזרה במלוא הדרה! */}
+                        {activeTab === "inventory" && (
+                            <div className="max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-amber-500 animate-fade-in">
+                                <div className="flex justify-between items-center mb-8">
+                                    <h2 className="text-3xl font-black text-white">📦 מלאי מחסן</h2>
+                                    <button onClick={() => setShowAddInventory(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-6 py-2 rounded-xl font-bold transition">➕ פריט חדש</button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {inventory.map(item => (
+                                        <div key={item.id} className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 flex flex-col justify-between">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-white mb-1">{item.name}</h3>
+                                                <p className="text-sm text-slate-400 mb-4">{item.category}</p>
+                                            </div>
+                                            <div className="flex items-center justify-between bg-slate-800 p-3 rounded-xl border border-white/5">
+                                                <button onClick={() => db.collection("inventory").doc(item.id).update({ quantity: Math.max(0, item.quantity - 1) })} className="w-10 h-10 bg-slate-700 rounded-lg font-black hover:bg-red-500 transition">-</button>
+                                                <span className={`text-2xl font-black ${item.quantity <= 5 ? 'text-red-500' : 'text-white'}`}>{item.quantity}</span>
+                                                <button onClick={() => db.collection("inventory").doc(item.id).update({ quantity: item.quantity + 1 })} className="w-10 h-10 bg-slate-700 rounded-lg font-black hover:bg-green-500 transition">+</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {inventory.length === 0 && <div className="col-span-3 text-center text-slate-500 py-10 bg-slate-900/50 rounded-xl">המחסן ריק כרגע.</div>}
+                                </div>
+                            </div>
+                        )}
+
                         {activeTab === "users" && currentUser.role === 'admin' && (
                             <div className="max-w-4xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-purple-500 animate-fade-in">
                                 <div className="flex justify-between items-center mb-8">
                                     <div>
                                         <h2 className="text-3xl font-black text-white">👥 הרשאות משתמשים</h2>
-                                        <p className="text-slate-400 mt-1">נהל מחלקות וצוותים. שים לב: משתמש אדמין 'roee' מוטמע כברירת מחדל.</p>
+                                        <p className="text-slate-400 mt-1">מנהל אדמין 'roeigalam' מוטמע כברירת מחדל ולא מופיע ברשימה זו.</p>
                                     </div>
                                     <button onClick={() => { setShowAddUser(true); setNewUserRole("worker"); }} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-xl font-bold transition">➕ צור משתמש</button>
                                 </div>
@@ -458,7 +582,6 @@
                             </div>
                         )}
                         
-                        {/* טאב כספים מתקדם (הרבה שלבים) */}
                         {activeTab === "finance" && currentUser.role === 'admin' && (
                             <div className="max-w-[1200px] mx-auto glass p-8 rounded-[2rem] border-t-4 border-emerald-500 animate-fade-in">
                                 <h2 className="text-3xl font-black text-white mb-2">💰 מערכת גבייה רב-שלבית</h2>
@@ -517,13 +640,23 @@
                             </div>
                         )}
 
-                        {/* טאב הגדרות ועיצוב */}
                         {activeTab === "settings" && currentUser.role === 'admin' && (
                             <div className="max-w-5xl mx-auto glass p-8 rounded-[2rem] border-t-4 border-slate-500 animate-fade-in">
                                 <h2 className="text-3xl font-black text-white mb-8">⚙️ הגדרות ועיצוב המערכת</h2>
-                                <div className="grid md:grid-cols-3 gap-8">
+                                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                                     
-                                    {/* עיצוב המערכת */}
+                                    <div className="bg-slate-900/50 p-6 rounded-2xl border border-white/5 lg:col-span-3 grid md:grid-cols-2 gap-6">
+                                        <h3 className="text-xl font-bold text-white md:col-span-2">🏢 הגדרות חברה ועסק</h3>
+                                        <div>
+                                            <label className="text-xs text-slate-400 block mb-1 font-bold">שם החברה (יופיע בכל מקום וב-PDF)</label>
+                                            <input value={portalName} onChange={e=>setPortalName(e.target.value)} className="w-full bg-slate-800 text-white px-4 py-3 rounded-xl outline-none border border-slate-700 font-bold" />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-slate-400 block mb-1 font-bold">מייל ברירת מחדל של המשרד (לשליחת עותקים)</label>
+                                            <input type="email" value={officeEmail} onChange={e=>setOfficeEmail(e.target.value)} className="w-full bg-slate-800 text-white px-4 py-3 rounded-xl outline-none border border-slate-700 font-bold text-left dir-ltr" />
+                                        </div>
+                                    </div>
+
                                     <div className="bg-slate-900/50 p-6 rounded-2xl border border-white/5">
                                         <h3 className="text-xl font-bold text-white mb-4">🎨 עיצוב ומראה</h3>
                                         <div className="space-y-4">
@@ -540,7 +673,7 @@
                                                     <option value="system-ui">ברירת מחדל (System)</option>
                                                     <option value="Arial">Arial (אריאל)</option>
                                                     <option value="Tahoma">Tahoma (טאהומה)</option>
-                                                    <option value="Heebo">Heebo (עדיף מודרני)</option>
+                                                    <option value="Heebo">Heebo (מודרני)</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -572,7 +705,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <button onClick={() => { db.collection("settings").doc("general").update({ stages, statusLabels, appColor, appFont }); alert("ההגדרות נשמרו בהצלחה לכלל המשתמשים!"); }} className="w-full mt-8 text-white py-4 rounded-xl font-black shadow-lg transition theme-bg filter hover:brightness-110">💾 שמור הגדרות מערכת</button>
+                                <button onClick={() => { db.collection("settings").doc("general").update({ stages, statusLabels, appColor, appFont, portalName, officeEmail }); alert("ההגדרות נשמרו בהצלחה לכלל המשתמשים!"); }} className="w-full mt-8 text-white py-4 rounded-xl font-black shadow-lg transition theme-bg filter hover:brightness-110">💾 שמור הגדרות מערכת</button>
                             </div>
                         )}
                         
@@ -587,17 +720,21 @@
                                     הפרויקט **{finishModal.name}** יוסר מהלוח המרכזי ויישמר בארכיון הפעילות.
                                 </p>
                                 <div className="space-y-4">
+                                    <div className="bg-blue-900/30 border border-blue-500/30 p-4 rounded-xl mb-4">
+                                        <p className="text-blue-300 text-xs font-bold">📄 המערכת כעת תוריד למחשב שלך דוח PDF מסודר.</p>
+                                        <p className="text-blue-300 text-xs font-bold mt-1">📧 תוכנת המייל תיפתח אוטומטית, עליך לצרף את הדוח וללחוץ "שלח" בתוכנה.</p>
+                                    </div>
                                     <div>
                                         <label className="text-xs text-slate-400 font-bold block mb-1">לאיזה מייל לשלוח הודעת סיום ללקוח?</label>
                                         <input name="email" type="email" defaultValue={finishModal.email} placeholder="client@email.com (אופציונלי)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none border border-slate-700" />
                                     </div>
                                     <div className="flex items-center gap-3 bg-slate-900/50 p-4 rounded-xl border border-white/5 cursor-pointer">
                                         <input type="checkbox" id="ccOffice" name="cc" defaultChecked className="w-5 h-5 accent-emerald-500" />
-                                        <label htmlFor="ccOffice" className="text-white font-bold text-sm cursor-pointer">שלח עותק אוטומטי למשרד (office@aquapoolco.co.il)</label>
+                                        <label htmlFor="ccOffice" className="text-white font-bold text-sm cursor-pointer">שלח עותק למשרד ({officeEmail})</label>
                                     </div>
                                 </div>
                                 <div className="flex gap-3 mt-6 pt-6 border-t border-white/10">
-                                    <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-black transition">שלח מייל וסיים פרויקט</button>
+                                    <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-black transition">הפק PDF ופתח מייל</button>
                                     <button type="button" onClick={() => setFinishModal(null)} className="px-6 text-slate-400 font-bold hover:text-white transition">ביטול</button>
                                 </div>
                             </form>
@@ -655,7 +792,7 @@
                                 <h2 className="text-white text-2xl font-black mb-2">משתמש חדש במערכת</h2>
                                 <input name="n" placeholder="שם העובד (מוצג במערכת)" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-slate-700" required />
                                 <div className="flex gap-2">
-                                    <input name="u" placeholder="שם משתמש להתחברות" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-blue-500" required />
+                                    <input name="u" placeholder="שם משתמש" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-blue-500" required />
                                     <input name="p" type="password" placeholder="סיסמה" className="w-full p-3 bg-slate-900 text-white rounded-xl border border-blue-500" required />
                                 </div>
                                 <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} className="w-full p-4 bg-slate-900 text-white rounded-xl border border-slate-700 mt-2">
@@ -676,7 +813,6 @@
                         </div>
                     )}
 
-                    {/* שאר המודאלים (פרויקט חדש, פריט מלאי, חומרים) נשארו אותו הדבר... */}
                     {showAddInventory && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
                             <form onSubmit={e => { e.preventDefault(); db.collection("inventory").add({ name: e.target.n.value, category: e.target.c.value, quantity: Number(e.target.q.value) }); setShowAddInventory(false); }} className="glass p-8 rounded-[2rem] w-full max-w-sm space-y-4 border-t-4 border-amber-500">
