@@ -9,7 +9,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0f172a">
+    
+    <link rel="icon" type="image/jpeg" href="https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg">
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg">
+    
+    <script>
+        const manifest = { "name": "Aquapoolco ERP", "short_name": "אקוופולקו", "display": "standalone", "start_url": ".", "theme_color": "#0f172a", "background_color": "#0f172a", "icons": [{"src": "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg", "sizes": "512x512", "type": "image/jpeg", "purpose": "any maskable"}] };
+        const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+        document.write('<link rel="manifest" href="' + URL.createObjectURL(blob) + '">');
+    </script>
 
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -101,10 +109,9 @@
             const [statusModal, setStatusModal] = useState(null);
             const [finishModal, setFinishModal] = useState(null); 
             
-            // מודל החומרים המשופר
             const [materialsModal, setMaterialsModal] = useState(null);
-            const [materialReqType, setMaterialReqType] = useState("stock"); // 'stock' או 'special'
-            const [materialSignData, setMaterialSignData] = useState(null); // שמירת נתונים להמתנה לחתימה
+            const [materialReqType, setMaterialReqType] = useState("stock"); 
+            const [materialSignData, setMaterialSignData] = useState(null); 
             
             const [photosModal, setPhotosModal] = useState(null);
             const [currentProjectPhotos, setCurrentProjectPhotos] = useState([]);
@@ -152,7 +159,6 @@
                 return () => unsubscribe();
             }, [photosModal]);
 
-            // הפעלת לוח חתימה (עובד גם על חתימת סטטוס וגם על חתימת ציוד)
             useEffect(() => {
                 if ((signRequirement || materialSignData) && canvasRef.current) {
                     sigPad.current = new SignaturePad(canvasRef.current, { backgroundColor: 'rgb(255, 255, 255)' });
@@ -183,6 +189,7 @@
                 else alert("שם משתמש או סיסמה שגויים. נסה שנית.");
             };
 
+            // הוגדל זמן המתנה ל-GPS ל-10 שניות!
             const logAttendanceAndLocation = (actionDetails, callback = null) => {
                 if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
@@ -195,7 +202,7 @@
                             db.collection("attendance").add({ userId: currentUser.id, userName: currentUser.name, action: actionDetails + " (ללא מיקום)", lat: null, lng: null, timestamp: new Date().toISOString() });
                             if (callback) callback();
                         },
-                        { enableHighAccuracy: true, timeout: 5000 }
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 } 
                     );
                 } else { if (callback) callback(); }
             };
@@ -242,7 +249,6 @@
                 setSignRequirement(null); setStatusModal(null); setSignerName(""); setSignerId("");
             };
 
-            // ---- תהליך הזמנת ציוד וחומרים החדש ----
             const handleMaterialSubmit = (e) => {
                 e.preventDefault();
                 const data = { type: materialReqType, qty: Number(e.target.qty.value) };
@@ -261,10 +267,8 @@
                 }
 
                 if (currentUser.role === 'admin') {
-                    // מנהל - מבצע ישר
                     executeMaterialAllocation(data, null);
                 } else {
-                    // עובד שטח - שומר נתונים ופותח חלון חתימה
                     setMaterialSignData(data);
                 }
             };
@@ -280,7 +284,6 @@
             };
 
             const executeMaterialAllocation = (data, signature) => {
-                // אם זה מהמלאי - נוריד מהמלאי
                 if (data.type === 'stock') {
                     const item = inventory.find(i => i.id === data.itemId);
                     db.collection("inventory").doc(data.itemId).update({ quantity: item.quantity - data.qty });
@@ -294,12 +297,22 @@
                     allocatedMaterials: [...currentMaterials, newMaterialObj]
                 });
 
-                logAttendanceAndLocation(`בקשת ציוד לפרויקט: ${data.itemName}`);
-                alert("הבקשה נרשמה בהצלחה!");
+                // בוטל תיעוד הנוכחות לבקשתך
                 setMaterialSignData(null);
-                setMaterialsModal(null); // סוגר את החלון בסיום
+                
+                // אפשרות להקפיץ הודעת ווצאפ לנהג
+                setTimeout(() => {
+                    if (window.confirm("הבקשה נרשמה בהצלחה!\n\nהאם תרצה לשלוח כעת הודעת ווצאפ לנהג לעדכון?")) {
+                        const msg = `היי, יש בקשת ציוד חדשה לאתר:\n*${materialsModal.name}*\n\nכמות: ${data.qty} x ${data.itemName}\nאנא בדוק באפליקציה!`;
+                        window.location.href = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                    }
+                    setMaterialsModal(null);
+                }, 100);
             };
-            // ----------------------------------------
+
+            const deleteAttendanceRecord = (id) => {
+                if(window.confirm("למחוק את הדיווח?")) db.collection("attendance").doc(id).delete();
+            };
 
             const exportPDF = (proj, callback = null) => {
                 const element = document.createElement('div');
@@ -332,26 +345,16 @@
                         </div>
                         <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px; font-size: 24px;">${portalName} - דוח סטטוס פרויקט</h1>
                         <h2 style="text-align: center; margin-top: 20px; font-size: 20px;">פרויקט: ${proj.name}</h2>
-                        
                         <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 14px; border: 1px solid #e2e8f0;">
                             <p style="margin: 5px 0;"><strong>כתובת האתר:</strong> ${proj.address}</p>
                             <p style="margin: 5px 0;"><strong>צוות מבצע:</strong> ${teamNames}</p>
                             <p style="margin: 5px 0;"><strong>תאריך הפקת דוח:</strong> ${new Date().toLocaleString('he-IL')}</p>
                         </div>
-
                         <h3 style="color: #475569; margin-bottom: 15px; font-size: 16px;">פירוט אבני דרך וחתימות:</h3>
                         <table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0; font-size: 14px;">
-                            <thead>
-                                <tr style="background-color: ${appColor}; color: white;">
-                                    <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב עבודה</th>
-                                    <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">סטטוס</th>
-                                    <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">מאשר</th>
-                                    <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">תאריך</th>
-                                </tr>
-                            </thead>
+                            <thead><tr style="background-color: ${appColor}; color: white;"><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב עבודה</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">סטטוס</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">מאשר</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">תאריך</th></tr></thead>
                             <tbody>${milestonesHtml}</tbody>
                         </table>
-                        <p style="text-align: center; margin-top: 40px; font-size: 12px; color: #94a3b8;">הופק אוטומטית באמצעות מערכת ה-ERP של ${portalName}</p>
                     </div>
                 `;
 
@@ -368,6 +371,8 @@
             const activeProjectsList = filteredProjects.filter(p => !p.isFinished);
             const finishedProjectsList = filteredProjects.filter(p => p.isFinished);
             const roleLabels = { admin: "מנהל מערכת", warehouse: "מנהל מחסן", driver: "נהג חלוקה", worker: "צוות שטח" };
+
+            const pendingDeliveriesCount = projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending')).length;
 
             const getCheckedValues = (formElement, inputName) => { const inputs=formElement[inputName]; let assigned=[]; if(inputs){ if(inputs.length===undefined){ if(inputs.checked) assigned.push(inputs.value); } else { assigned=Array.from(inputs).filter(i=>i.checked).map(i=>i.value); } } return assigned; };
 
@@ -427,7 +432,11 @@
                             )}
                             
                             {(currentUser.role === 'admin' || currentUser.role === 'driver') && (
-                                <button onClick={() => setActiveTab("deliveries")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'deliveries' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>🚚 חלוקה</button>
+                                <button onClick={() => setActiveTab("deliveries")} className={`flex items-center gap-1 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'deliveries' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>
+                                    🚚 חלוקה
+                                    {/* עיגול ההתראה לנהגים */}
+                                    {pendingDeliveriesCount > 0 && <span className="bg-red-500 text-white rounded-full px-2 py-0.5 text-[10px] font-black">{pendingDeliveriesCount}</span>}
+                                </button>
                             )}
                             {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
                                 <button onClick={() => setActiveTab("inventory")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'inventory' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📦 מחסן</button>
@@ -461,7 +470,7 @@
                                                 <th className="p-4 font-bold">שם העובד</th>
                                                 <th className="p-4 font-bold">פעולה במערכת</th>
                                                 <th className="p-4 font-bold">תאריך ושעה</th>
-                                                <th className="p-4 font-bold text-center">מיקום (מפה)</th>
+                                                <th className="p-4 font-bold text-center">מיקום / פעולות</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -471,12 +480,14 @@
                                                     <td className="p-4 font-bold text-white">👤 {log.userName}</td>
                                                     <td className="p-4 text-emerald-400">{log.action}</td>
                                                     <td className="p-4 text-slate-400 dir-ltr text-right">{new Date(log.timestamp).toLocaleString('he-IL')}</td>
-                                                    <td className="p-4 text-center">
+                                                    <td className="p-4 flex items-center justify-center gap-2">
                                                         {log.lat && log.lng ? (
                                                             <a href={`https://maps.google.com/?q=${log.lat},${log.lng}`} target="_blank" className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs inline-block shadow-lg">🗺️ פתח מפה</a>
                                                         ) : (
-                                                            <span className="text-red-400 text-xs font-bold">ללא אישור מיקום</span>
+                                                            <span className="text-red-400 text-xs font-bold">ללא מיקום</span>
                                                         )}
+                                                        {/* כפתור המחיקה החדש לשורת נוכחות */}
+                                                        <button onClick={() => deleteAttendanceRecord(log.id)} className="bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white px-2 py-1.5 rounded-lg font-bold text-xs transition">🗑️</button>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -699,7 +710,6 @@
                                                 <div className={`${m.name.includes("הזמנה מיוחדת") ? 'bg-purple-500/20 border-purple-500/30 text-purple-400' : 'bg-amber-500/20 border-amber-500/30 text-amber-400'} border px-4 py-2 rounded-xl inline-block w-full md:w-auto text-center`}>
                                                     <span className="font-black text-lg text-center w-full block">📦 {m.quantity} x {m.name}</span>
                                                 </div>
-                                                {/* אם יש חתימה, מציג אותה */}
                                                 {m.signature && (
                                                     <div className="mt-3 bg-slate-800 p-2 rounded-lg text-xs flex justify-between items-center border border-white/5">
                                                         <div><span className="text-slate-400">אושר ע"י:</span> <span className="text-white font-bold">{m.signature.name}</span></div>
@@ -744,7 +754,6 @@
                             </div>
                         )}
 
-                        {/* --- שאר הלשוניות (משתמשים, כספים, הגדרות) נשארות כרגיל --- */}
                         {activeTab === "users" && currentUser.role === 'admin' && (
                             <div className="max-w-4xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-purple-500 animate-fade-in">
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -884,7 +893,6 @@
 
                     {/* --- מודאלים --- */}
                     
-                    {/* חלון הוספת פריט למחסן שחזר! */}
                     {showAddInventory && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={e => {
@@ -913,7 +921,6 @@
                         </div>
                     )}
 
-                    {/* חלון ניהול חומרים מפוצל (מלאי / בקשה מיוחדת) */}
                     {materialsModal && !materialSignData && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 md:p-4">
                             <div className="bg-[#1e293b] w-full h-[90vh] md:h-auto md:max-h-[90vh] md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-amber-500">
@@ -923,7 +930,6 @@
                                 </div>
                                 <p className="text-amber-400 text-sm mb-6 font-bold shrink-0">{materialsModal.name}</p>
 
-                                {/* כפתורי טאבים */}
                                 <div className="flex gap-2 mb-6 shrink-0 bg-slate-900 p-1.5 rounded-xl border border-white/5">
                                     <button onClick={() => setMaterialReqType("stock")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${materialReqType === 'stock' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400'}`}>ממלאי קיים</button>
                                     <button onClick={() => setMaterialReqType("special")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${materialReqType === 'special' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400'}`}>בקשה מיוחדת</button>
@@ -965,7 +971,6 @@
                                     </button>
                                 </form>
 
-                                {/* תצוגת חומרים שכבר קיימים */}
                                 <div className="mt-6 border-t border-white/10 pt-4 shrink-0">
                                     <h4 className="text-xs text-slate-400 font-bold mb-3 flex items-center justify-between">
                                         <span>ציוד שכבר שויך לפרויקט:</span>
@@ -991,7 +996,6 @@
                         </div>
                     )}
 
-                    {/* חלון חתימה לאישור בקשת חומר (לעובדים) */}
                     {materialSignData && (
                         <div className="fixed inset-0 bg-slate-900/95 flex flex-col justify-end md:justify-center items-center z-[60] animate-fade-in md:p-4">
                             <div className="bg-[#1e293b] w-full h-[90vh] md:h-auto md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-amber-500">
@@ -1019,7 +1023,6 @@
                         </div>
                     )}
 
-                    {/* חלון גלריית תמונות */}
                     {photosModal && (
                         <div className="fixed inset-0 bg-slate-900/95 flex flex-col z-50 animate-fade-in md:p-8">
                             <div className="bg-[#1e293b] w-full h-full md:rounded-[2rem] flex flex-col shadow-2xl overflow-hidden" style={{ borderTop: `6px solid ${appColor}` }}>
@@ -1065,8 +1068,6 @@
                             </div>
                         </div>
                     )}
-
-                    {/* מודאלים נוספים שניקינו מקודם (שיוך, עריכה, ווצאפ, סטטוס) - ללא שינוי, השארתי כאן כדי שהכל יעבוד */}
 
                     {assignModal && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
