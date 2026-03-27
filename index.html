@@ -25,11 +25,10 @@
     <script src="https://cdn.jsdelivr.net/npm/mobile-drag-drop@3.0.0-beta.0/index.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mobile-drag-drop@3.0.0-beta.0/default.css">
     <script>
-        // Initiate mobile drag and drop support
         window.addEventListener('touchmove', function() {}, {passive: false});
         MobileDragDrop.polyfill({
             dragImageTranslateOverride: MobileDragDrop.scrollBehaviourDragImageTranslateOverride,
-            holdToDrag: 300 // ms hold to trigger drag
+            holdToDrag: 300 
         });
     </script>
     
@@ -49,9 +48,12 @@
         .dir-ltr { direction: ltr; } .hide-scroll::-webkit-scrollbar { display: none; } .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
         .loader { border: 4px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; display: inline-block; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        /* DnD Styles */
         .drag-handle { cursor: grab; }
         .drag-handle:active { cursor: grabbing; }
+        
+        /* Pulse glow animation for open orders */
+        .pulse-glow { animation: pulseGlow 1.5s infinite; }
+        @keyframes pulseGlow { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
     </style>
 </head>
 <body class="antialiased">
@@ -114,6 +116,10 @@
             const [currentProjectPhotos, setCurrentProjectPhotos] = useState([]);
             const [activePhotoFolder, setActivePhotoFolder] = useState('כללי');
             
+            // גלריה כללית (חברה)
+            const [globalPhotos, setGlobalPhotos] = useState([]);
+            const [globalPhotoTab, setGlobalPhotoTab] = useState('execution'); // 'execution' | 'supply'
+            
             const [inventoryItemModal, setInventoryItemModal] = useState(null);
             const [invModalTab, setInvModalTab] = useState("gallery"); 
             const [inventoryPhotos, setInventoryPhotos] = useState([]);
@@ -125,7 +131,6 @@
             const [cancelDeliveryModal, setCancelDeliveryModal] = useState(null);
             const [deliveryPhotoFile, setDeliveryPhotoFile] = useState(null);
 
-            // Drag and Drop State
             const [draggedProjId, setDraggedProjId] = useState(null);
             const [draggedDelivId, setDraggedDelivId] = useState(null);
 
@@ -169,6 +174,17 @@
                 }
                 return () => unsubscribe();
             }, [photosModal]);
+            
+            // משיכת תמונות לגלריה הכללית מכל הפרויקטים
+            useEffect(() => {
+                let unsubscribe = () => {};
+                if (activeTab === 'photos_global' && (currentUser.role === 'admin' || currentUser.role === 'warehouse')) {
+                    unsubscribe = db.collection("project_photos").orderBy("timestamp", "desc").limit(100).onSnapshot(snapshot => {
+                        setGlobalPhotos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    });
+                }
+                return () => unsubscribe();
+            }, [activeTab, currentUser]);
 
             useEffect(() => {
                 let unsubscribe = () => {};
@@ -200,7 +216,6 @@
                 return () => clearTimeout(timeout);
             }, [signRequirement, materialSignData, deliveryModal, cancelDeliveryModal, inventoryItemModal, invModalTab]);
 
-            // Drag and Drop Logic
             const onProjDragStart = (e, id) => { setDraggedProjId(id); e.dataTransfer.effectAllowed = "move"; };
             const onProjDragOver = (e) => { e.preventDefault(); };
             const onProjDrop = (e, targetId) => {
@@ -427,7 +442,8 @@
                     db.collection("inventory").doc(data.itemId).update({ quantity: item.quantity - data.qty });
                 }
                 const currentMaterials = materialsModal.allocatedMaterials || [];
-                const newMaterialObj = { id: Date.now().toString(), name: data.itemName, quantity: data.qty, date: new Date().toISOString(), status: 'pending', deliveryOrder: Date.now() };
+                // מוסיף requestedBy לשמירה מי ביצע את ההזמנה
+                const newMaterialObj = { id: Date.now().toString(), name: data.itemName, quantity: data.qty, date: new Date().toISOString(), status: 'pending', deliveryOrder: Date.now(), requestedBy: currentUser.name };
                 if (signature) newMaterialObj.signature = signature;
 
                 db.collection("projects").doc(materialsModal.id).update({ allocatedMaterials: [...currentMaterials, newMaterialObj] });
@@ -554,13 +570,20 @@
                         </div>
 
                         <nav className="flex gap-2 w-full overflow-x-auto hide-scroll pb-1 md:w-auto md:pb-0">
-                            <button onClick={() => setActiveTab("board")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'board' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📊 עבודה</button>
+                            {/* שונה השם מרשימת עבודה לרשימת פרויקטים */}
+                            <button onClick={() => setActiveTab("board")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'board' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📊 רשימת פרויקטים</button>
                             {currentUser.role === 'admin' && (
                                 <>
                                     <button onClick={() => setActiveTab("attendance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'attendance' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📍 נוכחות</button>
                                     <button onClick={() => setActiveTab("archive")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'archive' ? 'bg-slate-700 text-white shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📁 ארכיון</button>
                                 </>
                             )}
+                            
+                            {/* הטאב החדש לגלריית תמונות - למנהל ומחסנאי ממוקם ליד הארכיון */}
+                            {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
+                                <button onClick={() => setActiveTab("photos_global")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'photos_global' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📸 גלריית תמונות</button>
+                            )}
+                            
                             {(currentUser.role === 'admin' || currentUser.role === 'driver' || currentUser.role === 'warehouse') && (
                                 <button onClick={() => setActiveTab("deliveries")} className={`flex items-center gap-1 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'deliveries' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>🚚 חלוקה {pendingDeliveriesCount > 0 && <span className="bg-red-500 text-white rounded-full px-2 py-0.5 text-[10px] font-black">{pendingDeliveriesCount}</span>}</button>
                             )}
@@ -595,6 +618,11 @@
                                             {activeProjectsList.map(proj => {
                                                 const doneCount = stages.filter(s => proj.statuses && proj.statuses[s.id] === 3).length; const progress = stages.length ? Math.round((doneCount / stages.length) * 100) : 0;
                                                 const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'טרם שובץ';
+                                                
+                                                // בדיקת נצנץ
+                                                const hasOpenOrder = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'pending');
+                                                const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse') && hasOpenOrder;
+
                                                 return (
                                                     <tr 
                                                         key={proj.id} 
@@ -611,7 +639,8 @@
                                                         <td>
                                                             <div className="font-black text-white text-lg flex items-center gap-2">
                                                                 {proj.name}
-                                                                {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition" title="ערוך פרטי פרויקט (כתובת, לקוח)">✏️</button>}
+                                                                {showIndicator && <span className="pulse-glow bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black border border-red-400 mr-2 shrink-0" title="קיימת משימת חלוקת ציוד פתוחה במחסן לפרויקט זה!">🚨 ממתין לציוד</span>}
+                                                                {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition shrink-0" title="ערוך פרטי פרויקט (כתובת, לקוח)">✏️</button>}
                                                             </div>
                                                             <div className="flex items-center gap-2 mt-1 mb-1"><span className="text-xs text-slate-400">📍 {proj.address}</span><a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition" title="פתח ניווט בוויז">🚗 Waze</a></div>
                                                             <div className="flex gap-2">
@@ -628,7 +657,7 @@
                                                         <td className="text-center">
                                                             <div className="flex justify-center gap-2">
                                                                 <button onClick={() => setPhotosModal(proj)} className="p-2 bg-slate-800 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg transition border border-white/5 text-lg" title="גלריית תמונות ותיעוד מהשטח">📷</button>
-                                                                <button onClick={() => setMaterialsModal(proj)} className="p-2 bg-slate-800 hover:bg-amber-600 text-amber-300 hover:text-white rounded-lg transition border border-white/5 text-lg" title="שיוך חומרים ובקשת ציוד מהמחסן לפרויקט זה">📦</button>
+                                                                <button onClick={() => setMaterialsModal(proj)} className={`p-2 rounded-lg transition border text-lg ${showIndicator ? 'bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)] border-red-500' : 'bg-slate-800 hover:bg-amber-600 text-amber-300 hover:text-white border-white/5'}`} title="שיוך חומרים ובקשת ציוד מהמחסן לפרויקט זה">📦</button>
                                                                 {currentUser.role === 'admin' && <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="p-2 bg-emerald-600/20 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded-lg transition text-lg" title="סמן פרויקט כהסתיים והעבר לארכיון">✅</button>}
                                                             </div>
                                                         </td>
@@ -644,6 +673,10 @@
                                     {activeProjectsList.map(proj => {
                                         const doneCount = stages.filter(s => proj.statuses && proj.statuses[s.id] === 3).length; const progress = stages.length ? Math.round((doneCount / stages.length) * 100) : 0;
                                         const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'לא שובץ';
+                                        
+                                        const hasOpenOrder = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'pending');
+                                        const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse') && hasOpenOrder;
+
                                         return (
                                             <div 
                                                 key={proj.id} 
@@ -656,9 +689,10 @@
                                                 <div className="absolute top-0 right-0 w-2 h-full theme-bg opacity-80"></div>
                                                 <div className="pr-3">
                                                     <div className="flex justify-between items-start mb-2">
-                                                        <h3 className="font-black text-white text-xl leading-tight flex items-center gap-2">
+                                                        <h3 className="font-black text-white text-xl leading-tight flex flex-wrap items-center gap-2">
                                                             {currentUser.role === 'admin' && <span className="drag-handle text-slate-500 hover:text-white shrink-0 ml-1" title="גרור כדי לסדר עדיפות">☰</span>}
                                                             {proj.name}
+                                                            {showIndicator && <span className="pulse-glow bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black border border-red-400 mr-1 shrink-0">🚨 ממתין לציוד</span>}
                                                             {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition" title="ערוך פרטי פרויקט">✏️</button>}
                                                         </h3>
                                                         <a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg px-3 py-1.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1" title="ניווט מהיר בוויז לאתר הבנייה">🚗 Waze</a>
@@ -679,7 +713,7 @@
                                                     <div className="flex justify-between items-center border-t border-white/5 pt-4">
                                                         <div className="flex gap-2">
                                                             <button onClick={() => setPhotosModal(proj)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold flex gap-2 items-center" title="צפייה והעלאת תמונות ממוינות לתיקיות השלב">📷 תמונות</button>
-                                                            <button onClick={() => setMaterialsModal(proj)} className="bg-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold flex gap-2 items-center" title="ניהול בקשות ציוד למחסן עבור פרויקט זה">📦 חומרים</button>
+                                                            <button onClick={() => setMaterialsModal(proj)} className={`px-4 py-2 rounded-xl text-sm font-bold flex gap-2 items-center border transition ${showIndicator ? 'bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)] border-red-500 pulse-glow' : 'bg-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white border-transparent'}`} title="ניהול בקשות ציוד למחסן עבור פרויקט זה">📦 חומרים</button>
                                                         </div>
                                                         {currentUser.role === 'admin' && <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="w-10 h-10 flex items-center justify-center bg-emerald-600/20 text-emerald-500 rounded-xl text-lg font-bold" title="סיים פרויקט (מייצר הודעת גמר והעברה לארכיון)">✅</button>}
                                                     </div>
@@ -687,6 +721,42 @@
                                             </div>
                                         )
                                     })}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* טאב חדש: גלריית תמונות חברה (למנהלים ומחסנאים בלבד) */}
+                        {activeTab === "photos_global" && (currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
+                            <div className="max-w-6xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-indigo-500 animate-fade-in">
+                                <h2 className="text-2xl md:text-3xl font-black text-white mb-2">📸 גלריית תמונות חברה</h2>
+                                <p className="text-slate-400 text-sm mb-6">צפייה מרוכזת בכל התמונות שעלו מכל הפרויקטים (עד 100 האחרונות).</p>
+                                
+                                <div className="flex gap-2 mb-6 bg-slate-900 p-1.5 rounded-xl border border-white/5 w-full md:w-auto md:inline-flex">
+                                    <button onClick={() => setGlobalPhotoTab("execution")} className={`flex-1 md:flex-none md:px-8 py-3 rounded-lg font-black text-sm transition ${globalPhotoTab === 'execution' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>תיעוד ביצוע בשטח</button>
+                                    <button onClick={() => setGlobalPhotoTab("supply")} className={`flex-1 md:flex-none md:px-8 py-3 rounded-lg font-black text-sm transition ${globalPhotoTab === 'supply' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>ציוד שסופק (אספקה)</button>
+                                </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                    {globalPhotos
+                                        .filter(p => globalPhotoTab === 'supply' ? p.folder === 'ציוד שסופק לשטח' : p.folder !== 'ציוד שסופק לשטח')
+                                        .map(photo => (
+                                        <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg">
+                                            <img src={photo.imageBase64} alt="תיעוד כללי" className="w-full h-full object-cover" />
+                                            <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-3">
+                                                <p className="text-white text-xs font-black truncate">{photo.projName}</p>
+                                                <p className="text-indigo-300 text-[10px] font-bold bg-white/10 inline-block px-1.5 py-0.5 rounded mt-1">{photo.folder || 'כללי'}</p>
+                                            </div>
+                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
+                                                <p className="text-white text-[11px] font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p>
+                                                <p className="text-slate-400 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {globalPhotos.filter(p => globalPhotoTab === 'supply' ? p.folder === 'ציוד שסופק לשטח' : p.folder !== 'ציוד שסופק לשטח').length === 0 && (
+                                        <div className="col-span-full py-10 text-center text-slate-500 font-bold bg-slate-900/50 rounded-2xl border border-white/5">
+                                            אין תמונות בתיקייה זו כרגע.
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -711,8 +781,9 @@
                                                 )}
                                                 <div className="flex-1">
                                                     <h3 className="font-black text-lg text-white mb-1">{item.projName}</h3>
-                                                    <p className="text-xs text-slate-400 mb-3">📍 {item.projAddress}</p>
-                                                    <div className={`${item.name.includes("הזמנה מיוחדת") ? 'bg-purple-500/20 border-purple-500/30 text-purple-400' : 'bg-amber-500/20 border-amber-500/30 text-amber-400'} border px-4 py-2 rounded-xl inline-block w-full md:w-auto text-center`} title="הציוד הנדרש ליעד זה"><span className="font-black text-lg text-center w-full block">📦 {item.quantity} x {item.name}</span></div>
+                                                    <p className="text-xs text-slate-400 mb-2">📍 {item.projAddress}</p>
+                                                    <p className="text-[11px] text-blue-300 font-bold bg-blue-500/10 border border-blue-500/20 inline-block px-2 py-1 rounded-lg mb-3">👤 הוזמן ע"י: {item.requestedBy || 'לא צוין'}</p>
+                                                    <div className={`block ${item.name.includes("הזמנה מיוחדת") ? 'bg-purple-500/20 border-purple-500/30 text-purple-400' : 'bg-amber-500/20 border-amber-500/30 text-amber-400'} border px-4 py-2 rounded-xl inline-block w-full md:w-auto text-center`} title="הציוד הנדרש ליעד זה"><span className="font-black text-lg text-center w-full block">📦 {item.quantity} x {item.name}</span></div>
                                                 </div>
                                             </div>
                                             <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0 flex-wrap shrink-0">
@@ -945,7 +1016,7 @@
                                         {currentProjectPhotos.filter(p => (p.folder || 'כללי') === activePhotoFolder).map(photo => (
                                             <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg">
                                                 <img src={photo.imageBase64} alt="תיעוד" className="w-full h-full object-cover" />
-                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3"><p className="text-white text-xs font-bold">{photo.uploadedBy}</p><p className="text-slate-300 text-[10px] dir-ltr text-right">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p></div>
+                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3"><p className="text-white text-xs font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p><p className="text-slate-300 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p></div>
                                                 {currentUser.role === 'admin' && <button onClick={() => deletePhoto("project_photos", photo.id)} className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg md:opacity-0 md:group-hover:opacity-100 transition-opacity">🗑️</button>}
                                             </div>
                                         ))}
