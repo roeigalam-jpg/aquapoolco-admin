@@ -553,6 +553,27 @@
                 window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`, '_blank');
             };
 
+            // ==========================================
+            // 🛑 התיקון הקריטי: עצירת הקוד כאן אם לא מחוברים!
+            // ==========================================
+            if (!currentUser) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: appBgColor }}>
+                        <style>{`body { font-family: ${appFont}, sans-serif !important; background-color: ${appBgColor} !important; } .theme-bg { background-color: ${appColor} !important; } .theme-text { color: ${appColor} !important; }`}</style>
+                        <form onSubmit={handleLogin} className="p-10 md:p-12 w-full max-w-sm text-center shadow-2xl relative overflow-hidden" style={{ background: appCardBg, backdropFilter: 'blur(12px)', borderRadius: appRadius, borderTop: `4px solid ${appColor}` }}>
+                            <div className="flex justify-center mb-6"><img src={LOGO_URL} alt="Logo" className="h-24 w-auto object-contain rounded-2xl bg-white p-3 shadow-lg" onError={(e) => { e.target.style.display='none'; }} /></div>
+                            <h1 className="text-2xl font-black mb-1 text-white">התחברות לאפליקציה</h1>
+                            <p className="font-bold mb-8 uppercase text-xs tracking-widest theme-text">{portalName}</p>
+                            <input type="text" placeholder="שם משתמש" required value={loginUsername} onChange={e=>setLoginUsername(e.target.value)} className="w-full p-4 bg-black/30 rounded-xl mb-4 text-center text-white outline-none border border-white/10 focus:border-blue-500 font-bold text-lg" />
+                            <input type="password" placeholder="סיסמה" required value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} className="w-full p-4 bg-black/30 rounded-xl mb-8 text-center text-white outline-none border border-white/10 focus:border-blue-500 font-bold text-lg" />
+                            <button type="submit" className="w-full text-white py-4 rounded-xl font-black transition-all shadow-lg theme-bg filter hover:brightness-110 text-lg">כניסה למערכת</button>
+                        </form>
+                    </div>
+                );
+            }
+
+            // --- מכאן והלאה הקוד רץ רק אם יש משתמש מחובר! ---
+
             const sTerm = (searchTerm || "").toLowerCase();
             
             // סינון פרויקטים
@@ -579,22 +600,6 @@
                 else if (dir === 'down' && index < newStages.length - 1) { [newStages[index+1], newStages[index]] = [newStages[index], newStages[index+1]]; }
                 setStages(newStages);
             };
-
-            if (!currentUser) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: appBgColor }}>
-                        <style>{`body { font-family: ${appFont}, sans-serif !important; background-color: ${appBgColor} !important; } .theme-bg { background-color: ${appColor} !important; } .theme-text { color: ${appColor} !important; }`}</style>
-                        <form onSubmit={handleLogin} className="p-10 md:p-12 w-full max-w-sm text-center shadow-2xl relative overflow-hidden" style={{ background: appCardBg, backdropFilter: 'blur(12px)', borderRadius: appRadius, borderTop: `4px solid ${appColor}` }}>
-                            <div className="flex justify-center mb-6"><img src={LOGO_URL} alt="Logo" className="h-24 w-auto object-contain rounded-2xl bg-white p-3 shadow-lg" onError={(e) => { e.target.style.display='none'; }} /></div>
-                            <h1 className="text-2xl font-black mb-1 text-white">התחברות לאפליקציה</h1>
-                            <p className="font-bold mb-8 uppercase text-xs tracking-widest theme-text">{portalName}</p>
-                            <input type="text" placeholder="שם משתמש" required value={loginUsername} onChange={e=>setLoginUsername(e.target.value)} className="w-full p-4 bg-black/30 rounded-xl mb-4 text-center text-white outline-none border border-white/10 focus:border-blue-500 font-bold text-lg" />
-                            <input type="password" placeholder="סיסמה" required value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} className="w-full p-4 bg-black/30 rounded-xl mb-8 text-center text-white outline-none border border-white/10 focus:border-blue-500 font-bold text-lg" />
-                            <button type="submit" className="w-full text-white py-4 rounded-xl font-black transition-all shadow-lg theme-bg filter hover:brightness-110 text-lg">כניסה למערכת</button>
-                        </form>
-                    </div>
-                );
-            }
 
             return (
                 <div className="min-h-screen flex flex-col relative pb-10 md:pb-0" style={{ backgroundColor: appBgColor }}>
@@ -893,7 +898,7 @@
                                                 <tr key={log.id} className="border-b border-white/5 hover:bg-white/5">
                                                     <td className="p-4 font-bold text-white">👤 {log.userName}</td><td className="p-4 text-emerald-400">{log.action}</td><td className="p-4 text-slate-400 dir-ltr text-right">{new Date(log.timestamp).toLocaleString('he-IL')}</td>
                                                     <td className="p-4 flex items-center justify-center gap-2">
-                                                        {log.lat && log.lng ? <a href={`https://www.google.com/maps/search/?api=1&query=${log.lat},${log.lng}`} target="_blank" className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs inline-block shadow-lg">🗺️ מפה</a> : <span className="text-red-400 text-xs font-bold">ללא מיקום</span>}
+                                                        {log.lat && log.lng ? <a href={`https://maps.google.com/?q=${log.lat},${log.lng}`} target="_blank" className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs inline-block shadow-lg">🗺️ מפה</a> : <span className="text-red-400 text-xs font-bold">ללא מיקום</span>}
                                                         <button onClick={() => { if(window.confirm("למחוק דיווח?")) db.collection("attendance").doc(log.id).delete(); }} className="bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white px-2 py-1.5 rounded-lg font-bold text-xs transition">🗑️</button>
                                                     </td>
                                                 </tr>
@@ -1054,7 +1059,7 @@
                         )}
                     </main>
 
-                    {/* MODALS ONLY ONCE AT THE ROOT LEVEL */}
+                    {/* ===================== MODALS ===================== */}
                     {stageHistoryModal && (
                         <div className="fixed inset-0 bg-black/90 flex flex-col justify-end md:justify-center items-center z-[70] animate-fade-in md:p-4">
                             <div className="glass w-full h-[90vh] md:h-auto md:max-w-lg md:max-h-[90vh] mx-auto rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px]" style={{ borderColor: appColor }}>
@@ -1226,7 +1231,7 @@
                                             const mediaUrl = photo.fileUrl || photo.imageBase64;
                                             const isVideo = photo.fileType === 'video' || (mediaUrl && mediaUrl.includes('.mp4'));
                                             return (
-                                            <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-black/50 border border-white/5 aspect-[3/4] shadow-lg">
+                                            <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-black/50 border border-white/5 aspect-[3/4] shadow-lg cursor-grab active:cursor-grabbing">
                                                 {isVideo ? ( <video src={mediaUrl} controls className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} /> ) : ( <img src={mediaUrl} alt="תיעוד" className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} /> )}
                                                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pointer-events-none"><p className="text-white text-[11px] font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p><p className="text-slate-300 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>{photo.isDeleted && <p className="text-red-400 text-[10px] font-bold mt-1 bg-red-900/50 px-1 rounded">בפח מאז: {new Date(photo.deletedAt).toLocaleDateString('he-IL')}</p>}</div>
                                                 <div className="absolute top-2 right-2 flex flex-col gap-2 md:opacity-0 group-hover:opacity-100 transition-opacity">
