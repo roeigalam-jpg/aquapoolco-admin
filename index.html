@@ -41,7 +41,8 @@
         td { padding: 1rem 0.5rem; border-bottom: 1px solid #334155; white-space: nowrap; }
         tr:hover td { background: rgba(255,255,255,0.02); }
         .status-cell { cursor: pointer; border-radius: 0.5rem; text-align: center; font-weight: bold; padding: 0.75rem 0.5rem; transition: all 0.2s; border: 1px solid transparent; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 3rem; }
-        .status-cell:active { transform: scale(0.95); }
+        .status-cell.disabled { cursor: not-allowed; opacity: 0.7; }
+        .status-cell:not(.disabled):active { transform: scale(0.95); }
         .status-0 { background-color: #334155; color: #cbd5e1; } .status-1 { background-color: #f59e0b; color: #fff; } .status-2 { background-color: #ef4444; color: #fff; } .status-3 { background-color: #10b981; color: #fff; } 
         ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-track { background: #0f172a; } ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
         .signature-pad { background: white; border-radius: 8px; cursor: crosshair; touch-action: none; border: 2px solid #3b82f6; }
@@ -50,10 +51,12 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .drag-handle { cursor: grab; }
         .drag-handle:active { cursor: grabbing; }
-        
-        /* Pulse glow animation for open orders */
         .pulse-glow { animation: pulseGlow 1.5s infinite; }
         @keyframes pulseGlow { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        
+        .trash-zone { position: fixed; bottom: 0; left: 0; right: 0; height: 120px; background: rgba(220, 38, 38, 0.95); backdrop-filter: blur(10px); z-index: 9999; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 900; color: white; border-top: 4px solid #f87171; transition: transform 0.3s; transform: translateY(100%); }
+        .trash-zone.active { transform: translateY(0); }
+        .trash-zone.hover { background: rgba(185, 28, 28, 1); border-top-color: #fca5a5; transform: translateY(0) scale(1.02); }
     </style>
 </head>
 <body class="antialiased">
@@ -116,9 +119,8 @@
             const [currentProjectPhotos, setCurrentProjectPhotos] = useState([]);
             const [activePhotoFolder, setActivePhotoFolder] = useState('כללי');
             
-            // גלריה כללית (חברה)
             const [globalPhotos, setGlobalPhotos] = useState([]);
-            const [globalPhotoTab, setGlobalPhotoTab] = useState('execution'); // 'execution' | 'supply'
+            const [globalPhotoTab, setGlobalPhotoTab] = useState('execution');
             
             const [inventoryItemModal, setInventoryItemModal] = useState(null);
             const [invModalTab, setInvModalTab] = useState("gallery"); 
@@ -133,6 +135,10 @@
 
             const [draggedProjId, setDraggedProjId] = useState(null);
             const [draggedDelivId, setDraggedDelivId] = useState(null);
+            
+            const [draggedPhotoId, setDraggedPhotoId] = useState(null);
+            const [draggedPhotoCol, setDraggedPhotoCol] = useState(null);
+            const [isTrashHovered, setIsTrashHovered] = useState(false);
 
             const invSigPad = useRef(null);
             const invCanvasRef = useRef(null);
@@ -141,6 +147,8 @@
             
             const [isUploading, setIsUploading] = useState(false);
             const [signRequirement, setSignRequirement] = useState(null);
+
+            const roleLabels = { admin: "מנהל מערכת", accounting: "הנהלת חשבונות", warehouse: "מנהל מחסן", driver: "נהג חלוקה", worker: "צוות שטח" };
 
             useEffect(() => {
                 const savedUser = localStorage.getItem("aquapoolco_user");
@@ -163,11 +171,21 @@
                 db.collection("attendance").orderBy("timestamp", "desc").limit(100).onSnapshot(snapshot => setAttendanceLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
             }, []);
 
+            const checkAndDeleteOldPhotos = (doc) => {
+                const d = doc.data();
+                if (d.isDeleted && d.deletedAt) {
+                    const diffDays = (Date.now() - new Date(d.deletedAt).getTime()) / (1000 * 60 * 60 * 24);
+                    if (diffDays > 60) { db.collection("project_photos").doc(doc.id).delete(); return true; }
+                }
+                return false;
+            };
+
             useEffect(() => {
                 let unsubscribe = () => {};
                 if (photosModal) {
                     unsubscribe = db.collection("project_photos").where("projId", "==", photosModal.id).onSnapshot(snapshot => {
-                        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        const docs = [];
+                        snapshot.docs.forEach(doc => { if (!checkAndDeleteOldPhotos(doc)) docs.push({ id: doc.id, ...doc.data() }); });
                         docs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                         setCurrentProjectPhotos(docs);
                     }, err => console.error(err));
@@ -175,12 +193,13 @@
                 return () => unsubscribe();
             }, [photosModal]);
             
-            // משיכת תמונות לגלריה הכללית מכל הפרויקטים
             useEffect(() => {
                 let unsubscribe = () => {};
-                if (activeTab === 'photos_global' && (currentUser.role === 'admin' || currentUser.role === 'warehouse')) {
-                    unsubscribe = db.collection("project_photos").orderBy("timestamp", "desc").limit(100).onSnapshot(snapshot => {
-                        setGlobalPhotos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                if (activeTab === 'photos_global' && (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting')) {
+                    unsubscribe = db.collection("project_photos").orderBy("timestamp", "desc").limit(200).onSnapshot(snapshot => {
+                        const docs = [];
+                        snapshot.docs.forEach(doc => { if (!checkAndDeleteOldPhotos(doc)) docs.push({ id: doc.id, ...doc.data() }); });
+                        setGlobalPhotos(docs);
                     });
                 }
                 return () => unsubscribe();
@@ -216,11 +235,11 @@
                 return () => clearTimeout(timeout);
             }, [signRequirement, materialSignData, deliveryModal, cancelDeliveryModal, inventoryItemModal, invModalTab]);
 
-            const onProjDragStart = (e, id) => { setDraggedProjId(id); e.dataTransfer.effectAllowed = "move"; };
+            const onProjDragStart = (e, id) => { if(currentUser.role==='accounting') return; setDraggedProjId(id); e.dataTransfer.effectAllowed = "move"; };
             const onProjDragOver = (e) => { e.preventDefault(); };
             const onProjDrop = (e, targetId) => {
                 e.preventDefault();
-                if (!draggedProjId || draggedProjId === targetId) return;
+                if (!draggedProjId || draggedProjId === targetId || currentUser.role==='accounting') return;
 
                 const list = [...activeProjectsList];
                 const draggedIdx = list.findIndex(p => p.id === draggedProjId);
@@ -236,11 +255,11 @@
                 setDraggedProjId(null);
             };
 
-            const onDelivDragStart = (e, id) => { setDraggedDelivId(id); e.dataTransfer.effectAllowed = "move"; };
+            const onDelivDragStart = (e, id) => { if(currentUser.role==='accounting') return; setDraggedDelivId(id); e.dataTransfer.effectAllowed = "move"; };
             const onDelivDragOver = (e) => { e.preventDefault(); };
             const onDelivDrop = (e, targetId) => {
                 e.preventDefault();
-                if (!draggedDelivId || draggedDelivId === targetId) return;
+                if (!draggedDelivId || draggedDelivId === targetId || currentUser.role==='accounting') return;
 
                 const list = [...pendingDeliveriesList];
                 const draggedIdx = list.findIndex(d => d.id === draggedDelivId);
@@ -273,6 +292,26 @@
                 setDraggedDelivId(null);
             };
 
+            const onPhotoDragStart = (e, photoId, collection) => { if(currentUser.role !== 'admin') return; setDraggedPhotoId(photoId); setDraggedPhotoCol(collection); e.dataTransfer.effectAllowed = "move"; };
+            const onPhotoDragEnd = () => { setDraggedPhotoId(null); setDraggedPhotoCol(null); setIsTrashHovered(false); };
+            const onTrashDragOver = (e) => { e.preventDefault(); setIsTrashHovered(true); };
+            const onTrashDragLeave = () => { setIsTrashHovered(false); };
+            const onTrashDrop = (e) => {
+                e.preventDefault();
+                if (draggedPhotoId && draggedPhotoCol) {
+                    db.collection(draggedPhotoCol).doc(draggedPhotoId).update({ isDeleted: true, deletedAt: new Date().toISOString() });
+                }
+                setDraggedPhotoId(null); setDraggedPhotoCol(null); setIsTrashHovered(false);
+            };
+
+            const restorePhoto = (collection, photoId) => {
+                db.collection(collection).doc(photoId).update({ isDeleted: firebase.firestore.FieldValue.delete(), deletedAt: firebase.firestore.FieldValue.delete() });
+            };
+
+            const downloadImage = (base64, filename) => {
+                const a = document.createElement('a'); a.href = base64; a.download = `${filename}.jpg`; a.click();
+            };
+
             const handleLogin = (e) => {
                 e.preventDefault();
                 if (loginUsername === "roeigalam" && loginPassword === "2026") {
@@ -303,20 +342,71 @@
                 setTimeout(() => { window.location.href = wazeUrl; }, 1000);
             };
 
+            // הוספת משימה מיוחדת (טקסט חופשי) ע"י מנהל
+            const handleAddCustomTask = (projId) => {
+                const taskName = window.prompt("הזן פרטי משימה מיוחדת (לפרויקט זה בלבד):");
+                if (!taskName || !taskName.trim()) return;
+                const proj = projects.find(p => p.id === projId);
+                const newTask = { id: 'ct_' + Date.now(), label: taskName.trim() };
+                db.collection("projects").doc(projId).update({
+                    customTasks: [...(proj.customTasks || []), newTask]
+                });
+            };
+
+            const handleDeleteCustomTask = (e, projId, taskId) => {
+                e.stopPropagation();
+                if(!window.confirm("למחוק משימה זו לצמיתות?")) return;
+                const proj = projects.find(p => p.id === projId);
+                const updatedTasks = (proj.customTasks || []).filter(t => t.id !== taskId);
+                db.collection("projects").doc(projId).update({ customTasks: updatedTasks });
+            };
+
+            // ייצוא מסודר של PDF עם רווחים תקינים (&nbsp;) כדי לפתור את בעיות הצפיפות
             const exportPDF = (proj, callback = null) => {
-                const rtl = (text) => (text || '').toString().replace(/ /g, ' ');
+                const rtl = (text) => (text || '').toString().replace(/ /g, '&nbsp;');
                 const element = document.createElement('div');
                 const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => { const u = users.find(x=>x.id===uid); return u ? u.name : ''; }).filter(Boolean).join(', ') : 'טרם שובץ צוות';
 
-                let milestonesHtml = stages.map(stage => {
+                const allStages = [...stages, ...(proj.customTasks || [])];
+
+                let milestonesHtml = allStages.map(stage => {
                     const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
                     const sig = proj.signatures && proj.signatures[stage.id];
                     let signatureImage = '';
                     if (sig && sig.signatureData) signatureImage = `<tr><td colspan="4" style="text-align:center; padding: 10px; border-bottom: 1px solid #ddd;"><img src="${sig.signatureData}" style="max-height: 80px; border: 1px solid #ccc; border-radius: 4px;" crossorigin="anonymous" /></td></tr>`;
-                    return `<tr><td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${rtl(stage.label)}</td><td style="padding: 10px; border-bottom: 1px solid #ddd;">${rtl(statusLabels[code])}</td><td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? `${rtl(sig.name)}<br/><span style="color:gray; font-size: 10px;">ת.ז: ${sig.id}</span>` : '-'}</td><td style="padding: 10px; border-bottom: 1px solid #ddd;">${sig ? new Date(sig.date).toLocaleString('he-IL').replace(/ /g, ' ') : '-'}</td></tr>${signatureImage}`;
+                    
+                    const stageLabel = rtl(stage.label);
+                    const statusLabel = rtl(statusLabels[code]);
+                    const approver = sig ? `${rtl(sig.name)}<br/><span style="color:gray; font-size: 10px;">ת.ז:&nbsp;${sig.id}</span>` : '-';
+                    const sigDate = sig ? new Date(sig.date).toLocaleString('he-IL').replace(/,/g, ' - ').replace(/ /g, '&nbsp;') : '-';
+
+                    return `<tr><td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${stageLabel}</td><td style="padding: 10px; border-bottom: 1px solid #ddd;">${statusLabel}</td><td style="padding: 10px; border-bottom: 1px solid #ddd;">${approver}</td><td style="padding: 10px; border-bottom: 1px solid #ddd; direction: ltr; text-align: right;">${sigDate}</td></tr>${signatureImage}`;
                 }).join('');
 
-                element.innerHTML = `<div style="direction: rtl; font-family: Arial, sans-serif; padding: 40px; color: #333; letter-spacing: 0px; word-spacing: 2px;"><div style="text-align: center; margin-bottom: 20px;"><img src="${LOGO_URL}" style="max-height: 100px;" crossorigin="anonymous" /></div><h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px; font-size: 24px;">${rtl(portalName)} - דוח סטטוס פרויקט</h1><h2 style="text-align: center; margin-top: 20px; font-size: 20px;">פרויקט: ${rtl(proj.name)}</h2><div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 14px; border: 1px solid #e2e8f0;"><p style="margin: 5px 0;"><strong>כתובת האתר:</strong> ${rtl(proj.address)}</p><p style="margin: 5px 0;"><strong>צוות מבצע:</strong> ${rtl(teamNames)}</p><p style="margin: 5px 0;"><strong>תאריך הפקת דוח:</strong> ${new Date().toLocaleString('he-IL').replace(/ /g, ' ')}</p></div><h3 style="color: #475569; margin-bottom: 15px; font-size: 16px;">פירוט אבני דרך וחתימות:</h3><table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0; font-size: 14px;"><thead><tr style="background-color: ${appColor}; color: white;"><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב עבודה</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">סטטוס</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">מאשר</th><th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">תאריך</th></tr></thead><tbody>${milestonesHtml}</tbody></table></div>`;
+                const currentDate = new Date().toLocaleString('he-IL').replace(/,/g, ' - ').replace(/ /g, '&nbsp;');
+
+                element.innerHTML = `<div style="direction: rtl; font-family: Arial, sans-serif; padding: 40px; color: #333; letter-spacing: 0px; word-spacing: 2px;">
+                    <div style="text-align: center; margin-bottom: 20px;"><img src="${LOGO_URL}" style="max-height: 100px;" crossorigin="anonymous" /></div>
+                    <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px; font-size: 24px;">${rtl(portalName)}&nbsp;-&nbsp;דוח&nbsp;סטטוס&nbsp;פרויקט</h1>
+                    <h2 style="text-align: center; margin-top: 20px; font-size: 20px;">פרויקט:&nbsp;${rtl(proj.name)}</h2>
+                    <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 14px; border: 1px solid #e2e8f0;">
+                        <p style="margin: 5px 0;"><strong>כתובת&nbsp;האתר:</strong>&nbsp;${rtl(proj.address)}</p>
+                        <p style="margin: 5px 0;"><strong>צוות&nbsp;מבצע:</strong>&nbsp;${rtl(teamNames)}</p>
+                        <p style="margin: 5px 0;"><strong>תאריך&nbsp;הפקת&nbsp;דוח:</strong>&nbsp;<span style="direction: ltr; display: inline-block;">${currentDate}</span></p>
+                    </div>
+                    <h3 style="color: #475569; margin-bottom: 15px; font-size: 16px;">פירוט&nbsp;אבני&nbsp;דרך&nbsp;וחתימות:</h3>
+                    <table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0; font-size: 14px;">
+                        <thead>
+                            <tr style="background-color: ${appColor}; color: white;">
+                                <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב&nbsp;עבודה</th>
+                                <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">סטטוס</th>
+                                <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">מאשר</th>
+                                <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">תאריך</th>
+                            </tr>
+                        </thead>
+                        <tbody>${milestonesHtml}</tbody>
+                    </table>
+                </div>`;
 
                 const opt = { margin: 10, filename: `דוח_פרויקט_${proj.name.replace(/ /g, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
                 html2pdf().set(opt).from(element).save().then(() => { if (callback) callback(); });
@@ -328,7 +418,8 @@
                 else { alert("שימו לב: לא הוזן טלפון לקוח בפרויקט זה. תוכלו לבחור למי לשלוח מתוך ווצאפ."); }
                 
                 let msg = `שלום, מצורף דוח סטטוס מעודכן לפרויקט ${proj.name}.\n\nלהלן פירוט השלבים:\n`;
-                stages.forEach((stage, idx) => {
+                const allStages = [...stages, ...(proj.customTasks || [])];
+                allStages.forEach((stage, idx) => {
                     const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
                     msg += `${idx+1}. ${stage.label} - ${statusLabels[code]}\n`;
                 });
@@ -342,6 +433,18 @@
                 });
             };
 
+            const drawWatermark = (canvas, ctx, line1, line2) => {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+                ctx.fillRect(0, canvas.height - 80, canvas.width, 80);
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 26px Arial, system-ui";
+                ctx.textAlign = "right";
+                ctx.fillText(line1, canvas.width - 20, canvas.height - 45);
+                ctx.fillStyle = "#cbd5e1";
+                ctx.font = "18px Arial, system-ui";
+                ctx.fillText(line2, canvas.width - 20, canvas.height - 18);
+            };
+
             const processAndUploadFiles = (files, collectionName, extraData) => {
                 if (!files || files.length === 0) return Promise.resolve([]);
                 const uploadPromises = Array.from(files).map(file => {
@@ -350,11 +453,17 @@
                         reader.onload = (event) => {
                             const img = new Image();
                             img.onload = () => {
-                                const canvas = document.createElement('canvas'); const MAX_WIDTH = 800; 
+                                const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000; 
                                 const scaleSize = Math.min(1, MAX_WIDTH / img.width);
                                 canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
                                 const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                                db.collection(collectionName).add({ ...extraData, imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString() }).then(resolve).catch(reject);
+                                
+                                const dateStr = new Date().toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+                                const line1 = extraData.projName ? `${extraData.projName} - ${extraData.folder || 'כללי'}` : (extraData.itemId ? `מחסן קליטה` : `תיעוד כללי`);
+                                const line2 = `צולם ע"י: ${currentUser.name} | ${dateStr}`;
+                                drawWatermark(canvas, ctx, line1, line2);
+
+                                db.collection(collectionName).add({ ...extraData, imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString(), isDeleted: false }).then(resolve).catch(reject);
                             };
                             img.src = event.target.result;
                         };
@@ -372,8 +481,6 @@
                     .then(() => setIsUploading(false)).catch(() => { alert("שגיאה בהעלאת התמונות. אנא נסה שוב."); setIsUploading(false); });
             };
 
-            const deletePhoto = (collection, photoId) => { if(window.confirm("למחוק את התמונה לצמיתות?")) db.collection(collection).doc(photoId).delete(); };
-
             const confirmSignatureAndStatus = (e) => {
                 e.preventDefault();
                 if (!currentUser.tz) return alert("⛔ שגיאה: למשתמש שלך לא מוגדרת תעודת זהות במערכת.");
@@ -385,15 +492,18 @@
                 reader.onload = (event) => {
                     const img = new Image();
                     img.onload = () => {
-                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 800;
+                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000;
                         const scaleSize = Math.min(1, MAX_WIDTH / img.width);
                         canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
                         const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         
+                        const proj = projects.find(p => p.id === signRequirement.projId);
+                        const dateStr = new Date().toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+                        drawWatermark(canvas, ctx, `${proj?.name} - שלב: ${signRequirement.stageLabel}`, `מאשר: ${currentUser.name} | ${dateStr}`);
+
                         db.collection("project_photos").add({
-                            projId: signRequirement.projId, projName: projects.find(p => p.id === signRequirement.projId)?.name, folder: signRequirement.stageLabel, imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString()
+                            projId: signRequirement.projId, projName: proj?.name, folder: signRequirement.stageLabel, imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString(), isDeleted: false
                         }).then(() => {
-                            const proj = projects.find(p => p.id === signRequirement.projId);
                             logAttendanceAndLocation(`עדכון סטטוס: ${signRequirement.newStatus} בפרויקט ${proj.name}`);
 
                             db.collection("projects").doc(signRequirement.projId).update({
@@ -423,7 +533,7 @@
                     data.itemName = "הזמנה מיוחדת: " + specialText;
                 }
 
-                if (currentUser.role === 'admin') executeMaterialAllocation(data, null);
+                if (currentUser.role === 'admin' || currentUser.role === 'accounting') executeMaterialAllocation(data, null);
                 else {
                     if (!currentUser.tz) return alert("לא הוגדרה ת.ז למשתמש שלך, לא ניתן לחתום.");
                     setMaterialSignData(data);
@@ -442,7 +552,6 @@
                     db.collection("inventory").doc(data.itemId).update({ quantity: item.quantity - data.qty });
                 }
                 const currentMaterials = materialsModal.allocatedMaterials || [];
-                // מוסיף requestedBy לשמירה מי ביצע את ההזמנה
                 const newMaterialObj = { id: Date.now().toString(), name: data.itemName, quantity: data.qty, date: new Date().toISOString(), status: 'pending', deliveryOrder: Date.now(), requestedBy: currentUser.name };
                 if (signature) newMaterialObj.signature = signature;
 
@@ -467,13 +576,16 @@
                 reader.onload = (event) => {
                     const img = new Image();
                     img.onload = () => {
-                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 800;
+                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000;
                         const scaleSize = Math.min(1, MAX_WIDTH / img.width);
                         canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
                         const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         
+                        const dateStr = new Date().toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+                        drawWatermark(canvas, ctx, `אספקת ציוד: ${deliveryModal.projName}`, `נהג: ${currentUser.name} | ציוד: ${deliveryModal.qty} ${deliveryModal.matName} | ${dateStr}`);
+                        
                         db.collection("project_photos").add({
-                            projId: deliveryModal.projId, projName: deliveryModal.projName, folder: "ציוד שסופק לשטח", imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString()
+                            projId: deliveryModal.projId, projName: deliveryModal.projName, folder: "ציוד שסופק לשטח", imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString(), isDeleted: false
                         }).then(() => {
                             const proj = projects.find(p => p.id === deliveryModal.projId);
                             const updated = proj.allocatedMaterials.map(m => m.id === deliveryModal.matId ? { ...m, status: 'delivered', deliveryDate: new Date().toISOString(), deliverySig: sigPad.current.toDataURL() } : m);
@@ -527,13 +639,12 @@
             const filteredProjects = projects.filter(p => { const searchStr=String(searchTerm||""); const matchesSearch=String(p.name||"").includes(searchStr)||String(p.address||"").includes(searchStr); if(!matchesSearch) return false; if(currentUser&&currentUser.role==='worker') return Array.isArray(p.assignedUsers)&&p.assignedUsers.includes(currentUser.id); return true; });
             const activeProjectsList = filteredProjects.filter(p => !p.isFinished).sort((a,b) => (a.order || 0) - (b.order || 0));
             const finishedProjectsList = filteredProjects.filter(p => p.isFinished);
-            const roleLabels = { admin: "מנהל מערכת", warehouse: "מנהל מחסן", driver: "נהג חלוקה", worker: "צוות שטח" };
 
             let pendingDeliveriesList = projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending').map(m => ({...m, projId: p.id, projAddress: p.address, projName: p.name})));
             pendingDeliveriesList.sort((a,b) => (a.deliveryOrder || 0) - (b.deliveryOrder || 0));
             const pendingDeliveriesCount = pendingDeliveriesList.length;
 
-            const projectFolders = ['כללי', 'ציוד שסופק לשטח', ...stages.map(s => s.label)];
+            const projectFolders = ['כללי', 'ציוד שסופק לשטח', ...stages.map(s => s.label), '🗑️ פח אשפה'];
 
             const getCheckedValues = (formElement, inputName) => { const inputs=formElement[inputName]; let assigned=[]; if(inputs){ if(inputs.length===undefined){ if(inputs.checked) assigned.push(inputs.value); } else { assigned=Array.from(inputs).filter(i=>i.checked).map(i=>i.value); } } return assigned; };
 
@@ -554,8 +665,17 @@
             }
 
             return (
-                <div className="min-h-screen flex flex-col">
+                <div className="min-h-screen flex flex-col relative pb-20 md:pb-0" onDragEnd={onPhotoDragEnd}>
                     <style>{`:root { --theme-color: ${appColor}; --theme-font: ${appFont}; } body { font-family: var(--theme-font), sans-serif !important; } .theme-bg { background-color: var(--theme-color) !important; color: white !important; } .theme-text { color: var(--theme-color) !important; } .theme-border { border-color: var(--theme-color) !important; }`}</style>
+                    
+                    <div 
+                        onDragOver={onTrashDragOver} 
+                        onDragLeave={onTrashDragLeave} 
+                        onDrop={onTrashDrop} 
+                        className={`trash-zone ${draggedPhotoId ? 'active' : ''} ${isTrashHovered ? 'hover' : ''}`}
+                    >
+                        🗑️ {isTrashHovered ? 'שחרר עכשיו למחיקה!' : 'גרור את התמונה לכאן כדי למחוק אותה'}
+                    </div>
 
                     <header className="glass px-4 py-3 flex flex-col md:flex-row justify-between items-center sticky top-0 z-30 border-b border-white/5 gap-3 shadow-md">
                         <div className="flex w-full justify-between items-center md:w-auto md:border-l border-white/10 pl-6">
@@ -564,35 +684,36 @@
                                 <div><div className="text-base font-black text-white leading-none">{portalName}</div><div className="text-[10px] font-bold theme-text mt-1">{currentUser.name} | {roleLabels[currentUser.role]}</div></div>
                             </div>
                             <div className="flex gap-2 md:hidden">
-                                {currentUser.role === 'admin' && <button onClick={() => setShowAddProject(true)} className="theme-bg w-10 h-10 flex items-center justify-center rounded-full font-bold shadow-lg text-lg" title="פרויקט חדש">➕</button>}
+                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setShowAddProject(true)} className="theme-bg w-10 h-10 flex items-center justify-center rounded-full font-bold shadow-lg text-lg" title="פרויקט חדש">➕</button>}
                                 <button onClick={handleLogout} className="w-10 h-10 flex items-center justify-center bg-slate-800 rounded-full text-slate-400 font-bold text-sm" title="התנתק מהמערכת">🚪</button>
                             </div>
                         </div>
 
                         <nav className="flex gap-2 w-full overflow-x-auto hide-scroll pb-1 md:w-auto md:pb-0">
-                            {/* שונה השם מרשימת עבודה לרשימת פרויקטים */}
                             <button onClick={() => setActiveTab("board")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'board' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📊 רשימת פרויקטים</button>
-                            {currentUser.role === 'admin' && (
+                            
+                            {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
                                 <>
-                                    <button onClick={() => setActiveTab("attendance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'attendance' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📍 נוכחות</button>
+                                    {currentUser.role === 'admin' && <button onClick={() => setActiveTab("attendance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'attendance' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📍 נוכחות</button>}
                                     <button onClick={() => setActiveTab("archive")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'archive' ? 'bg-slate-700 text-white shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📁 ארכיון</button>
                                 </>
                             )}
                             
-                            {/* הטאב החדש לגלריית תמונות - למנהל ומחסנאי ממוקם ליד הארכיון */}
-                            {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
+                            {(currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
                                 <button onClick={() => setActiveTab("photos_global")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'photos_global' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📸 גלריית תמונות</button>
                             )}
                             
-                            {(currentUser.role === 'admin' || currentUser.role === 'driver' || currentUser.role === 'warehouse') && (
+                            {(currentUser.role === 'admin' || currentUser.role === 'driver' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
                                 <button onClick={() => setActiveTab("deliveries")} className={`flex items-center gap-1 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'deliveries' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>🚚 חלוקה {pendingDeliveriesCount > 0 && <span className="bg-red-500 text-white rounded-full px-2 py-0.5 text-[10px] font-black">{pendingDeliveriesCount}</span>}</button>
                             )}
-                            {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
+                            {(currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
                                 <button onClick={() => setActiveTab("inventory")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'inventory' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>📦 מחסן</button>
+                            )}
+                            {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
+                                <button onClick={() => setActiveTab("finance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'finance' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>💰 כספים</button>
                             )}
                             {currentUser.role === 'admin' && (
                                 <>
-                                    <button onClick={() => setActiveTab("finance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'finance' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>💰 כספים</button>
                                     <button onClick={() => setActiveTab("users")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'users' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>👥 משתמשים</button>
                                     <button onClick={() => setActiveTab("settings")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'settings' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>⚙️ הגדרות</button>
                                 </>
@@ -600,7 +721,7 @@
                         </nav>
                         
                         <div className="hidden md:flex gap-4 items-center min-w-max pr-4">
-                            {currentUser.role === 'admin' && <button onClick={() => setShowAddProject(true)} className="theme-bg px-6 py-2.5 rounded-full font-bold shadow-lg transition-all text-sm filter hover:brightness-110" title="צור פרויקט חדש במערכת">➕ פרויקט חדש</button>}
+                            {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setShowAddProject(true)} className="theme-bg px-6 py-2.5 rounded-full font-bold shadow-lg transition-all text-sm filter hover:brightness-110" title="צור פרויקט חדש במערכת">➕ פרויקט חדש</button>}
                             <button onClick={handleLogout} className="text-slate-500 hover:text-white font-bold text-sm transition-colors" title="התנתק מהמערכת">התנתק</button>
                         </div>
                     </header>
@@ -612,16 +733,17 @@
 
                                 <div className="hidden lg:block table-container bg-[#1e293b]/50 shadow-2xl mb-8">
                                     <table className="w-full text-right">
-                                        <thead><tr><th className="w-2"></th><th className="w-10"></th><th className="min-w-[250px]">שם פרויקט, מיקום וצוות</th>{stages.map(s => <th key={s.id} className="text-center">{s.label}</th>)}<th>התקדמות</th><th className="text-center">פעולות</th></tr></thead>
+                                        <thead><tr><th className="w-2"></th><th className="w-10"></th><th className="min-w-[250px]">שם פרויקט, מיקום וצוות</th>{stages.map(s => <th key={s.id} className="text-center">{s.label}</th>)}<th className="text-center w-32">משימות מיוחדות</th><th>התקדמות</th><th className="text-center">פעולות</th></tr></thead>
                                         <tbody>
-                                            {activeProjectsList.length === 0 && <tr><td colSpan={stages.length + 5} className="text-center py-10 text-slate-500">אין פרויקטים פעילים.</td></tr>}
+                                            {activeProjectsList.length === 0 && <tr><td colSpan={stages.length + 6} className="text-center py-10 text-slate-500">אין פרויקטים פעילים.</td></tr>}
                                             {activeProjectsList.map(proj => {
-                                                const doneCount = stages.filter(s => proj.statuses && proj.statuses[s.id] === 3).length; const progress = stages.length ? Math.round((doneCount / stages.length) * 100) : 0;
+                                                const allStagesForProgress = [...stages, ...(proj.customTasks || [])];
+                                                const doneCount = allStagesForProgress.filter(s => proj.statuses && proj.statuses[s.id] === 3).length; 
+                                                const progress = allStagesForProgress.length ? Math.round((doneCount / allStagesForProgress.length) * 100) : 0;
                                                 const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'טרם שובץ';
                                                 
-                                                // בדיקת נצנץ
                                                 const hasOpenOrder = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'pending');
-                                                const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse') && hasOpenOrder;
+                                                const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && hasOpenOrder;
 
                                                 return (
                                                     <tr 
@@ -640,25 +762,44 @@
                                                             <div className="font-black text-white text-lg flex items-center gap-2">
                                                                 {proj.name}
                                                                 {showIndicator && <span className="pulse-glow bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black border border-red-400 mr-2 shrink-0" title="קיימת משימת חלוקת ציוד פתוחה במחסן לפרויקט זה!">🚨 ממתין לציוד</span>}
-                                                                {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition shrink-0" title="ערוך פרטי פרויקט (כתובת, לקוח)">✏️</button>}
+                                                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition shrink-0" title="ערוך פרטי פרויקט (כתובת, לקוח)">✏️</button>}
                                                             </div>
                                                             <div className="flex items-center gap-2 mt-1 mb-1"><span className="text-xs text-slate-400">📍 {proj.address}</span><a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition" title="פתח ניווט בוויז">🚗 Waze</a></div>
                                                             <div className="flex gap-2">
                                                                 <div onClick={() => currentUser.role === 'admin' ? setAssignModal({ id: proj.id, name: proj.name, users: Array.isArray(proj.assignedUsers) ? proj.assignedUsers : [] }) : null} className={`bg-slate-800 px-2 py-1 rounded text-[10px] font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer hover:bg-slate-700 text-blue-300' : 'text-slate-300'}`} title="ניהול והקצאת עובדים לפרויקט">👥 צוות: {teamNames} {currentUser.role === 'admin' && '✏️'}</div>
-                                                                {currentUser.role === 'admin' && <button onClick={() => sendWhatsAppToClient(proj)} className="bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366] hover:text-white px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1" title="הורד דוח ושלח אותו אוטומטית ללקוח בווצאפ">💬 שלח סטטוס</button>}
+                                                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => sendWhatsAppToClient(proj)} className="bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366] hover:text-white px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1" title="הורד דוח ושלח אותו אוטומטית ללקוח בווצאפ">💬 שלח סטטוס</button>}
                                                             </div>
                                                         </td>
                                                         {stages.map(stage => {
                                                             const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
                                                             const color = code === 3 ? "bg-[#10b981] text-white shadow-lg shadow-emerald-500/20" : code === 2 ? "bg-[#ef4444] text-white" : code === 1 ? "bg-[#f59e0b] text-white" : "bg-[#334155] text-slate-300";
-                                                            return <td key={stage.id} onClick={() => { if(currentUser.role === 'driver') return alert("אין הרשאה."); setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code }); }}><div className={`status-cell ${color}`} title={`לחץ לעדכון הסטטוס בשלב ${stage.label}`}>{statusLabels[code]}</div></td>;
+                                                            return <td key={stage.id} onClick={() => { if(currentUser.role === 'driver' || currentUser.role === 'accounting') return alert("אין לך הרשאה לעדכן סטטוס."); setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code }); }}><div className={`status-cell ${color} ${(currentUser.role==='accounting'||currentUser.role==='driver') ? 'disabled' : ''}`} title={`לחץ לעדכון הסטטוס בשלב ${stage.label}`}>{statusLabels[code]}</div></td>;
                                                         })}
+                                                        <td className="px-2 align-top pt-4">
+                                                            <div className="flex flex-col gap-1.5 w-32 mx-auto">
+                                                                {(proj.customTasks || []).map(task => {
+                                                                    const code = (proj.statuses && proj.statuses[task.id]) !== undefined ? proj.statuses[task.id] : 0;
+                                                                    const color = code === 3 ? "bg-[#10b981] text-white" : code === 2 ? "bg-[#ef4444] text-white" : code === 1 ? "bg-[#f59e0b] text-white" : "bg-[#334155] text-slate-300";
+                                                                    return (
+                                                                        <div key={task.id} className="relative group flex items-center">
+                                                                            <button onClick={() => { if(currentUser.role === 'driver' || currentUser.role === 'accounting') return alert("אין הרשאה לעדכן."); setStatusModal({ projId: proj.id, stageId: task.id, projName: proj.name, stageLabel: task.label, currentCode: code }); }} className={`w-full text-[10px] p-1.5 rounded-lg font-bold ${color} truncate shadow-sm ${(currentUser.role==='accounting'||currentUser.role==='driver')?'opacity-80 cursor-not-allowed':''}`} title={task.label}>
+                                                                                {task.label}
+                                                                            </button>
+                                                                            {currentUser.role === 'admin' && <button onClick={(e) => handleDeleteCustomTask(e, proj.id, task.id)} className="absolute -left-1.5 -top-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full w-4 h-4 text-[8px] opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity shadow-lg z-10" title="מחק משימה">X</button>}
+                                                                        </div>
+                                                                    )
+                                                                })}
+                                                                {currentUser.role === 'admin' && (
+                                                                    <button onClick={() => handleAddCustomTask(proj.id)} className="text-[10px] text-blue-400 hover:bg-blue-600 hover:text-white py-1.5 rounded-lg border border-dashed border-blue-500/50 mt-1 transition shadow-sm w-full font-bold">+ משימה</button>
+                                                                )}
+                                                            </div>
+                                                        </td>
                                                         <td className="px-4"><div className="flex items-center gap-3" title="מד התקדמות הפרויקט לפי כמות השלבים שבוצעו"><span className="text-xs font-bold w-8 text-slate-300">{progress}%</span><div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden"><div className={`h-full rounded-full theme-bg`} style={{width:`${progress}%`}}></div></div></div></td>
                                                         <td className="text-center">
                                                             <div className="flex justify-center gap-2">
                                                                 <button onClick={() => setPhotosModal(proj)} className="p-2 bg-slate-800 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg transition border border-white/5 text-lg" title="גלריית תמונות ותיעוד מהשטח">📷</button>
                                                                 <button onClick={() => setMaterialsModal(proj)} className={`p-2 rounded-lg transition border text-lg ${showIndicator ? 'bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)] border-red-500' : 'bg-slate-800 hover:bg-amber-600 text-amber-300 hover:text-white border-white/5'}`} title="שיוך חומרים ובקשת ציוד מהמחסן לפרויקט זה">📦</button>
-                                                                {currentUser.role === 'admin' && <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="p-2 bg-emerald-600/20 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded-lg transition text-lg" title="סמן פרויקט כהסתיים והעבר לארכיון">✅</button>}
+                                                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="p-2 bg-emerald-600/20 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded-lg transition text-lg" title="סמן פרויקט כהסתיים והעבר לארכיון">✅</button>}
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -671,11 +812,13 @@
                                 <div className="block lg:hidden space-y-5 pb-10">
                                     {activeProjectsList.length === 0 && <div className="text-center py-10 text-slate-500 bg-slate-900 rounded-2xl border border-white/5">אין פרויקטים פעילים.</div>}
                                     {activeProjectsList.map(proj => {
-                                        const doneCount = stages.filter(s => proj.statuses && proj.statuses[s.id] === 3).length; const progress = stages.length ? Math.round((doneCount / stages.length) * 100) : 0;
+                                        const allStagesForProgress = [...stages, ...(proj.customTasks || [])];
+                                        const doneCount = allStagesForProgress.filter(s => proj.statuses && proj.statuses[s.id] === 3).length; 
+                                        const progress = allStagesForProgress.length ? Math.round((doneCount / allStagesForProgress.length) * 100) : 0;
                                         const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'לא שובץ';
                                         
                                         const hasOpenOrder = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'pending');
-                                        const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse') && hasOpenOrder;
+                                        const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && hasOpenOrder;
 
                                         return (
                                             <div 
@@ -693,20 +836,36 @@
                                                             {currentUser.role === 'admin' && <span className="drag-handle text-slate-500 hover:text-white shrink-0 ml-1" title="גרור כדי לסדר עדיפות">☰</span>}
                                                             {proj.name}
                                                             {showIndicator && <span className="pulse-glow bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black border border-red-400 mr-1 shrink-0">🚨 ממתין לציוד</span>}
-                                                            {currentUser.role === 'admin' && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition" title="ערוך פרטי פרויקט">✏️</button>}
+                                                            {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition" title="ערוך פרטי פרויקט">✏️</button>}
                                                         </h3>
                                                         <a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg px-3 py-1.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1" title="ניווט מהיר בוויז לאתר הבנייה">🚗 Waze</a>
                                                     </div>
                                                     <p className="text-sm text-slate-400 mb-3">📍 {proj.address}</p>
                                                     <div className="flex gap-2 flex-wrap mb-4">
                                                         <div onClick={() => currentUser.role === 'admin' ? setAssignModal({ id: proj.id, name: proj.name, users: Array.isArray(proj.assignedUsers) ? proj.assignedUsers : [] }) : null} className={`bg-slate-800/80 px-3 py-2 rounded-xl text-xs font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer' : ''}`} title="הוסף או הסר עובדים המשוייכים לפרויקט"><span className="text-slate-400">צוות:</span> <span className="text-white">{teamNames}</span> {currentUser.role === 'admin' && '✏️'}</div>
-                                                        {currentUser.role === 'admin' && <button onClick={() => sendWhatsAppToClient(proj)} className="bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366] hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 border border-[#25D366]/30" title="שלח דוח מסכם ללקוח ישירות לווצאפ שלו">💬 שלח סטטוס</button>}
+                                                        {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => sendWhatsAppToClient(proj)} className="bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366] hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 border border-[#25D366]/30" title="שלח דוח מסכם ללקוח ישירות לווצאפ שלו">💬 שלח סטטוס</button>}
+                                                    </div>
+                                                    
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <label className="text-xs text-slate-400 font-bold block mb-1">שלבי ביצוע ומשימות:</label>
+                                                        {currentUser.role === 'admin' && <button onClick={() => handleAddCustomTask(proj.id)} className="text-[10px] bg-blue-600/20 text-blue-400 hover:bg-blue-500 hover:text-white px-2 py-1 rounded-lg transition font-bold shadow-sm">+ הוסף משימה</button>}
                                                     </div>
                                                     <div className="grid grid-cols-2 gap-3 mb-5">
-                                                        {stages.map(stage => {
+                                                        {allStagesForProgress.map(stage => {
+                                                            const isCustom = String(stage.id).startsWith('ct_');
                                                             const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
                                                             const color = code === 3 ? "bg-[#10b981] text-white border-transparent" : code === 2 ? "bg-[#ef4444] text-white border-transparent" : code === 1 ? "bg-[#f59e0b] text-white border-transparent" : "bg-slate-800 text-slate-400 border border-white/10";
-                                                            return <button key={stage.id} onClick={() => { if(currentUser.role === 'driver') return alert("אין הרשאה."); setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code }); }} className={`p-3 rounded-2xl flex flex-col justify-center items-center font-bold text-sm transition shadow-sm active:scale-95 ${color}`} title={`לחץ לעדכון סטטוס השלב ומעבר לאישור וחתימה`}><span className="text-[10px] opacity-70 mb-1 leading-none">{stage.label}</span><span>{statusLabels[code]}</span></button>
+                                                            return (
+                                                                <div key={stage.id} className="relative group">
+                                                                    <button onClick={() => { if(currentUser.role === 'driver' || currentUser.role === 'accounting') return alert("אין הרשאה לעדכן."); setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code }); }} className={`w-full p-3 rounded-2xl flex flex-col justify-center items-center font-bold text-sm transition shadow-sm ${(currentUser.role==='accounting'||currentUser.role==='driver')?'opacity-80 cursor-not-allowed':'active:scale-95'} ${color} ${isCustom ? 'ring-1 ring-blue-500/30' : ''}`} title={`לחץ לעדכון סטטוס השלב ומעבר לאישור וחתימה`}>
+                                                                        <span className="text-[10px] opacity-70 mb-1 leading-none text-center w-full truncate">{stage.label}</span>
+                                                                        <span>{statusLabels[code]}</span>
+                                                                    </button>
+                                                                    {isCustom && currentUser.role === 'admin' && (
+                                                                        <button onClick={(e) => handleDeleteCustomTask(e, proj.id, stage.id)} className="absolute -left-1.5 -top-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full w-5 h-5 text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10" title="מחק משימה מיוחדת">X</button>
+                                                                    )}
+                                                                </div>
+                                                            )
                                                         })}
                                                     </div>
                                                     <div className="flex items-center gap-3 mb-5 bg-slate-800/50 p-3 rounded-xl border border-white/5" title="התקדמות כללית של הבריכה"><span className="text-xs font-black text-white w-8">{progress}%</span><div className="flex-1 bg-slate-900 rounded-full h-3 overflow-hidden shadow-inner"><div className="h-full rounded-full theme-bg" style={{width:`${progress}%`}}></div></div></div>
@@ -715,7 +874,7 @@
                                                             <button onClick={() => setPhotosModal(proj)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold flex gap-2 items-center" title="צפייה והעלאת תמונות ממוינות לתיקיות השלב">📷 תמונות</button>
                                                             <button onClick={() => setMaterialsModal(proj)} className={`px-4 py-2 rounded-xl text-sm font-bold flex gap-2 items-center border transition ${showIndicator ? 'bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)] border-red-500 pulse-glow' : 'bg-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white border-transparent'}`} title="ניהול בקשות ציוד למחסן עבור פרויקט זה">📦 חומרים</button>
                                                         </div>
-                                                        {currentUser.role === 'admin' && <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="w-10 h-10 flex items-center justify-center bg-emerald-600/20 text-emerald-500 rounded-xl text-lg font-bold" title="סיים פרויקט (מייצר הודעת גמר והעברה לארכיון)">✅</button>}
+                                                        {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setFinishModal({ id: proj.id, name: proj.name, address: proj.address })} className="w-10 h-10 flex items-center justify-center bg-emerald-600/20 text-emerald-500 rounded-xl text-lg font-bold" title="סיים פרויקט (מייצר הודעת גמר והעברה לארכיון)">✅</button>}
                                                     </div>
                                                 </div>
                                             </div>
@@ -725,34 +884,54 @@
                             </div>
                         )}
                         
-                        {/* טאב חדש: גלריית תמונות חברה (למנהלים ומחסנאים בלבד) */}
-                        {activeTab === "photos_global" && (currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
+                        {activeTab === "photos_global" && (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
                             <div className="max-w-6xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-indigo-500 animate-fade-in">
                                 <h2 className="text-2xl md:text-3xl font-black text-white mb-2">📸 גלריית תמונות חברה</h2>
-                                <p className="text-slate-400 text-sm mb-6">צפייה מרוכזת בכל התמונות שעלו מכל הפרויקטים (עד 100 האחרונות).</p>
+                                <p className="text-slate-400 text-sm mb-6">צפייה מרוכזת בכל התמונות שעלו מכל הפרויקטים (עד 200 האחרונות). {currentUser.role === 'admin' && 'אפשר לגרור תמונות לפח!'}</p>
                                 
-                                <div className="flex gap-2 mb-6 bg-slate-900 p-1.5 rounded-xl border border-white/5 w-full md:w-auto md:inline-flex">
+                                <div className="flex gap-2 mb-6 bg-slate-900 p-1.5 rounded-xl border border-white/5 w-full md:w-auto md:inline-flex flex-wrap md:flex-nowrap">
                                     <button onClick={() => setGlobalPhotoTab("execution")} className={`flex-1 md:flex-none md:px-8 py-3 rounded-lg font-black text-sm transition ${globalPhotoTab === 'execution' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>תיעוד ביצוע בשטח</button>
                                     <button onClick={() => setGlobalPhotoTab("supply")} className={`flex-1 md:flex-none md:px-8 py-3 rounded-lg font-black text-sm transition ${globalPhotoTab === 'supply' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>ציוד שסופק (אספקה)</button>
+                                    <button onClick={() => setGlobalPhotoTab("trash")} className={`flex-[100%] md:flex-none md:px-8 py-3 rounded-lg font-black text-sm transition ${globalPhotoTab === 'trash' ? 'bg-red-600 text-white shadow-lg' : 'text-red-400 hover:bg-red-500/20'}`}>🗑️ סל מחזור (60 יום)</button>
                                 </div>
 
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                                     {globalPhotos
-                                        .filter(p => globalPhotoTab === 'supply' ? p.folder === 'ציוד שסופק לשטח' : p.folder !== 'ציוד שסופק לשטח')
+                                        .filter(p => {
+                                            if (globalPhotoTab === 'trash') return p.isDeleted;
+                                            if (p.isDeleted) return false;
+                                            if (globalPhotoTab === 'supply') return p.folder === 'ציוד שסופק לשטח';
+                                            return p.folder !== 'ציוד שסופק לשטח';
+                                        })
                                         .map(photo => (
-                                        <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg">
-                                            <img src={photo.imageBase64} alt="תיעוד כללי" className="w-full h-full object-cover" />
+                                        <div key={photo.id} draggable={currentUser.role === 'admin'} onDragStart={(e) => onPhotoDragStart(e, photo.id, "project_photos")} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg cursor-grab active:cursor-grabbing">
+                                            <img src={photo.imageBase64} alt="תיעוד כללי" className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} />
                                             <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-3">
                                                 <p className="text-white text-xs font-black truncate">{photo.projName}</p>
                                                 <p className="text-indigo-300 text-[10px] font-bold bg-white/10 inline-block px-1.5 py-0.5 rounded mt-1">{photo.folder || 'כללי'}</p>
                                             </div>
-                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3">
-                                                <p className="text-white text-[11px] font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p>
-                                                <p className="text-slate-400 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
+                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3 flex justify-between items-end">
+                                                <div>
+                                                    <p className="text-white text-[11px] font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p>
+                                                    <p className="text-slate-400 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
+                                                    {photo.isDeleted && <p className="text-red-400 text-[10px] font-bold mt-1 bg-red-900/50 px-1 rounded">בפח מאז: {new Date(photo.deletedAt).toLocaleDateString('he-IL')}</p>}
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="absolute top-2 right-2 flex flex-col gap-2 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
+                                                    <button onClick={() => downloadImage(photo.imageBase64, `תמונה_${photo.projName || 'תיעוד'}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="הורד תמונה (עם פרטים צרובים)">⬇️</button>
+                                                )}
+                                                {currentUser.role === 'admin' && !photo.isDeleted && (
+                                                    <button onClick={() => {db.collection("project_photos").doc(photo.id).update({isDeleted:true, deletedAt: new Date().toISOString()})}} className="w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="העבר לסל מחזור">🗑️</button>
+                                                )}
+                                                {currentUser.role === 'admin' && photo.isDeleted && (
+                                                    <button onClick={() => restorePhoto("project_photos", photo.id)} className="w-8 h-8 bg-emerald-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="שחזר תמונה מפח האשפה">♻️</button>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
-                                    {globalPhotos.filter(p => globalPhotoTab === 'supply' ? p.folder === 'ציוד שסופק לשטח' : p.folder !== 'ציוד שסופק לשטח').length === 0 && (
+                                    {globalPhotos.filter(p => globalPhotoTab === 'trash' ? p.isDeleted : (!p.isDeleted && (globalPhotoTab === 'supply' ? p.folder === 'ציוד שסופק לשטח' : p.folder !== 'ציוד שסופק לשטח'))).length === 0 && (
                                         <div className="col-span-full py-10 text-center text-slate-500 font-bold bg-slate-900/50 rounded-2xl border border-white/5">
                                             אין תמונות בתיקייה זו כרגע.
                                         </div>
@@ -798,11 +977,11 @@
                             </div>
                         )}
 
-                        {activeTab === "inventory" && (
+                        {activeTab === "inventory" && (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
                             <div className="max-w-6xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-amber-500 animate-fade-in">
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 md:mb-8 gap-4">
                                     <h2 className="text-2xl md:text-3xl font-black text-white">📦 מלאי מחסן עלית</h2>
-                                    <button onClick={() => setShowAddInventory(true)} className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold w-full md:w-auto shadow-lg active:scale-95 transition" title="הוסף סוג פריט חדש למסד הנתונים">➕ פריט חדש למחסן</button>
+                                    {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && <button onClick={() => setShowAddInventory(true)} className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold w-full md:w-auto shadow-lg active:scale-95 transition" title="הוסף סוג פריט חדש למסד הנתונים">➕ פריט חדש למחסן</button>}
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                     {inventory.map(item => (
@@ -840,7 +1019,7 @@
                             </div>
                         )}
 
-                        {activeTab === "archive" && currentUser.role === 'admin' && (
+                        {activeTab === "archive" && (currentUser.role === 'admin' || currentUser.role === 'accounting') && (
                             <div className="animate-fade-in max-w-5xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-slate-500">
                                 <h2 className="text-2xl md:text-3xl font-black text-white mb-2">📁 פרויקטים בארכיון</h2>
                                 <p className="text-slate-400 text-sm mb-6">יומן פרויקטים שנסגרו והסתיימו בהצלחה.</p>
@@ -854,7 +1033,7 @@
                                                 <div><h3 className="text-xl font-black text-emerald-400 flex items-center gap-2">✅ {proj.name}</h3><p className="text-sm text-slate-400 mt-1 mb-2">📍 {proj.address}</p><div className="bg-slate-800 px-3 py-1 rounded-lg text-[10px] font-bold inline-block border border-white/5 text-slate-300">👥 צוות: {teamNames}</div></div>
                                                 <div className="w-full md:w-auto flex flex-row md:flex-col justify-between items-end md:items-end bg-slate-900/50 md:bg-transparent p-3 md:p-0 rounded-xl">
                                                     <div className="text-right"><p className="text-[10px] font-bold text-slate-500 uppercase">תאריך סיום</p><p className="text-white font-bold md:mb-2">{proj.finishedAt ? new Date(proj.finishedAt).toLocaleDateString('he-IL') : 'לא צוין'}</p></div>
-                                                    <div className="flex gap-2 mt-0 md:mt-2"><button onClick={() => exportPDF(proj)} className="text-xs bg-indigo-600 text-white px-3 py-2 rounded-lg font-bold shadow-lg" title="יצא דוח פרויקט סופי למסמך PDF מסודר">📄 PDF</button><button onClick={() => deleteProject(proj.id)} className="text-xs bg-red-900/60 text-red-400 px-3 py-2 rounded-lg font-bold" title="מחיקת הפרויקט מכל המערכת לצמיתות">מחק 🗑️</button></div>
+                                                    <div className="flex gap-2 mt-0 md:mt-2"><button onClick={() => exportPDF(proj)} className="text-xs bg-indigo-600 text-white px-3 py-2 rounded-lg font-bold shadow-lg" title="יצא דוח פרויקט סופי למסמך PDF מסודר">📄 PDF</button>{currentUser.role === 'admin' && <button onClick={() => deleteProject(proj.id)} className="text-xs bg-red-900/60 text-red-400 px-3 py-2 rounded-lg font-bold" title="מחיקת הפרויקט מכל המערכת לצמיתות">מחק 🗑️</button>}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -887,7 +1066,7 @@
                             </div>
                         )}
 
-                        {activeTab === "finance" && currentUser.role === 'admin' && (
+                        {activeTab === "finance" && (currentUser.role === 'admin' || currentUser.role === 'accounting') && (
                             <div className="max-w-[1200px] mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-emerald-500 animate-fade-in">
                                 <h2 className="text-2xl md:text-3xl font-black text-white mb-2">💰 כספים וגבייה</h2>
                                 <p className="text-slate-400 text-sm mb-6">מערכת תשלומים (נשמר אוטומטית בכל שינוי).</p>
@@ -905,11 +1084,11 @@
                                                     </div>
                                                 </div>
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-                                                    <div className="bg-slate-800 p-2 rounded-xl border border-blue-500/30" title="הסכום הכולל שסוכם עם הלקוח"><label className="text-[10px] text-blue-400 font-bold uppercase block mb-1 pl-1">תקציב (₪)</label><input type="number" value={budget} onChange={(e) => handleFinanceChange(proj.id, 'budget', e.target.value)} className="w-full p-2.5 bg-slate-900 text-white rounded-lg outline-none font-black dir-ltr text-right" /></div>
-                                                    <div className="bg-slate-800 p-2 rounded-xl border border-white/5"><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1 pl-1">מקדמה (₪)</label><input type="number" value={pAdv} onChange={(e) => handleFinanceChange(proj.id, 'payAdvance', e.target.value)} className="w-full p-2.5 bg-slate-900 text-emerald-400 rounded-lg outline-none font-black dir-ltr text-right" /></div>
-                                                    <div className="bg-slate-800 p-2 rounded-xl border border-white/5"><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1 pl-1">שלב א' (₪)</label><input type="number" value={pA} onChange={(e) => handleFinanceChange(proj.id, 'payStageA', e.target.value)} className="w-full p-2.5 bg-slate-900 text-emerald-400 rounded-lg outline-none font-black dir-ltr text-right" /></div>
-                                                    <div className="bg-slate-800 p-2 rounded-xl border border-white/5"><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1 pl-1">שלב ב' (₪)</label><input type="number" value={pB} onChange={(e) => handleFinanceChange(proj.id, 'payStageB', e.target.value)} className="w-full p-2.5 bg-slate-900 text-emerald-400 rounded-lg outline-none font-black dir-ltr text-right" /></div>
-                                                    <div className="bg-slate-800 p-2 rounded-xl border border-white/5"><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1 pl-1">גמר (₪)</label><input type="number" value={pFinal} onChange={(e) => handleFinanceChange(proj.id, 'payFinal', e.target.value)} className="w-full p-2.5 bg-slate-900 text-emerald-400 rounded-lg outline-none font-black dir-ltr text-right" /></div>
+                                                    <div className="bg-slate-800 p-2 rounded-xl border border-blue-500/30" title="הסכום הכולל שסוכם עם הלקוח"><label className="text-[10px] text-blue-400 font-bold uppercase block mb-1 pl-1">תקציב (₪)</label><input type="number" disabled={currentUser.role === 'accounting'} value={budget} onChange={(e) => handleFinanceChange(proj.id, 'budget', e.target.value)} className="w-full p-2.5 bg-slate-900 text-white rounded-lg outline-none font-black dir-ltr text-right disabled:opacity-70 disabled:cursor-not-allowed" /></div>
+                                                    <div className="bg-slate-800 p-2 rounded-xl border border-white/5"><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1 pl-1">מקדמה (₪)</label><input type="number" disabled={currentUser.role === 'accounting'} value={pAdv} onChange={(e) => handleFinanceChange(proj.id, 'payAdvance', e.target.value)} className="w-full p-2.5 bg-slate-900 text-emerald-400 rounded-lg outline-none font-black dir-ltr text-right disabled:opacity-70 disabled:cursor-not-allowed" /></div>
+                                                    <div className="bg-slate-800 p-2 rounded-xl border border-white/5"><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1 pl-1">שלב א' (₪)</label><input type="number" disabled={currentUser.role === 'accounting'} value={pA} onChange={(e) => handleFinanceChange(proj.id, 'payStageA', e.target.value)} className="w-full p-2.5 bg-slate-900 text-emerald-400 rounded-lg outline-none font-black dir-ltr text-right disabled:opacity-70 disabled:cursor-not-allowed" /></div>
+                                                    <div className="bg-slate-800 p-2 rounded-xl border border-white/5"><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1 pl-1">שלב ב' (₪)</label><input type="number" disabled={currentUser.role === 'accounting'} value={pB} onChange={(e) => handleFinanceChange(proj.id, 'payStageB', e.target.value)} className="w-full p-2.5 bg-slate-900 text-emerald-400 rounded-lg outline-none font-black dir-ltr text-right disabled:opacity-70 disabled:cursor-not-allowed" /></div>
+                                                    <div className="bg-slate-800 p-2 rounded-xl border border-white/5"><label className="text-[10px] text-slate-400 font-bold uppercase block mb-1 pl-1">גמר (₪)</label><input type="number" disabled={currentUser.role === 'accounting'} value={pFinal} onChange={(e) => handleFinanceChange(proj.id, 'payFinal', e.target.value)} className="w-full p-2.5 bg-slate-900 text-emerald-400 rounded-lg outline-none font-black dir-ltr text-right disabled:opacity-70 disabled:cursor-not-allowed" /></div>
                                                 </div>
                                             </div>
                                         )
@@ -967,7 +1146,7 @@
                                 </div>
                                 <div className="flex gap-2 p-4 shrink-0 bg-[#1e293b] border-b border-white/5">
                                     <button onClick={() => setInvModalTab("gallery")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${invModalTab === 'gallery' ? 'bg-amber-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400'}`}>📷 קבצים ותעודות</button>
-                                    <button onClick={() => setInvModalTab("receive")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${invModalTab === 'receive' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400'}`}>📥 קליטת סחורה חדשה</button>
+                                    {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && <button onClick={() => setInvModalTab("receive")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${invModalTab === 'receive' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400'}`}>📥 קליטת סחורה חדשה</button>}
                                 </div>
                                 <div className="flex-1 overflow-y-auto bg-slate-900/50 p-4 md:p-6">
                                     {invModalTab === "gallery" && (
@@ -978,7 +1157,10 @@
                                                         <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg">
                                                             <img src={photo.imageBase64} alt="תעודה" className="w-full h-full object-cover" />
                                                             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3"><p className="text-emerald-400 text-xs font-black">נקלט: +{photo.qtyAdded}</p><p className="text-white text-[10px] font-bold">חתם: {photo.signatureName}</p><p className="text-slate-300 text-[10px] dir-ltr text-right">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p></div>
-                                                            {currentUser.role === 'admin' && <button onClick={() => deletePhoto("inventory_photos", photo.id)} className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg md:opacity-0 md:group-hover:opacity-100 transition-opacity">🗑️</button>}
+                                                            <div className="absolute top-2 right-2 flex flex-col gap-2 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => downloadImage(photo.imageBase64, `תעודת_משלוח_${inventoryItemModal.name}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg">⬇️</button>}
+                                                                {currentUser.role === 'admin' && <button onClick={() => {if(window.confirm("למחוק?")) db.collection("inventory_photos").doc(photo.id).delete();}} className="w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg">🗑️</button>}
+                                                            </div>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1008,25 +1190,42 @@
                                     <button onClick={() => setPhotosModal(null)} className="w-10 h-10 bg-slate-800 rounded-full text-white font-bold text-xl flex items-center justify-center">X</button>
                                 </div>
                                 <div className="flex gap-2 p-3 bg-[#1e293b] overflow-x-auto hide-scroll shrink-0 border-b border-white/5">
-                                    {projectFolders.map(folder => <button key={folder} onClick={() => setActivePhotoFolder(folder)} className={`whitespace-nowrap px-4 py-2 rounded-xl font-bold text-sm transition-all ${activePhotoFolder === folder ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400'}`}>📁 {folder}</button>)}
+                                    {projectFolders.map(folder => <button key={folder} onClick={() => setActivePhotoFolder(folder)} className={`whitespace-nowrap px-4 py-2 rounded-xl font-bold text-sm transition-all ${activePhotoFolder === folder ? (folder==='🗑️ פח אשפה' ? 'bg-red-600' : 'bg-blue-600') + ' text-white shadow-lg' : 'bg-slate-800 text-slate-400'}`}>📁 {folder}</button>)}
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-900/50">
-                                    {currentProjectPhotos.filter(p => (p.folder || 'כללי') === activePhotoFolder).length === 0 && !isUploading && <div className="h-full flex flex-col items-center justify-center text-slate-500"><span className="text-6xl mb-4 opacity-20">📷</span><p className="font-bold">אין תמונות בתיקיית "{activePhotoFolder}".</p></div>}
+                                    {currentProjectPhotos.filter(p => activePhotoFolder === '🗑️ פח אשפה' ? p.isDeleted : (!p.isDeleted && (p.folder || 'כללי') === activePhotoFolder)).length === 0 && !isUploading && <div className="h-full flex flex-col items-center justify-center text-slate-500"><span className="text-6xl mb-4 opacity-20">📷</span><p className="font-bold">אין תמונות בתיקיית "{activePhotoFolder}".</p></div>}
                                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                        {currentProjectPhotos.filter(p => (p.folder || 'כללי') === activePhotoFolder).map(photo => (
-                                            <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg">
-                                                <img src={photo.imageBase64} alt="תיעוד" className="w-full h-full object-cover" />
-                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3"><p className="text-white text-xs font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p><p className="text-slate-300 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p></div>
-                                                {currentUser.role === 'admin' && <button onClick={() => deletePhoto("project_photos", photo.id)} className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg md:opacity-0 md:group-hover:opacity-100 transition-opacity">🗑️</button>}
+                                        {currentProjectPhotos.filter(p => activePhotoFolder === '🗑️ פח אשפה' ? p.isDeleted : (!p.isDeleted && (p.folder || 'כללי') === activePhotoFolder)).map(photo => (
+                                            <div key={photo.id} draggable={currentUser.role === 'admin'} onDragStart={(e) => onPhotoDragStart(e, photo.id, "project_photos")} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg cursor-grab active:cursor-grabbing">
+                                                <img src={photo.imageBase64} alt="תיעוד" className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} />
+                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+                                                    <p className="text-white text-xs font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p>
+                                                    <p className="text-slate-300 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
+                                                    {photo.isDeleted && <p className="text-red-400 text-[10px] font-bold mt-1 bg-red-900/50 px-1 rounded">בפח מאז: {new Date(photo.deletedAt).toLocaleDateString('he-IL')}</p>}
+                                                </div>
+                                                
+                                                <div className="absolute top-2 right-2 flex flex-col gap-2 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
+                                                        <button onClick={() => downloadImage(photo.imageBase64, `תמונה_${photosModal.name || 'תיעוד'}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="הורד תמונה (עם פרטים צרובים)">⬇️</button>
+                                                    )}
+                                                    {currentUser.role === 'admin' && !photo.isDeleted && (
+                                                        <button onClick={() => {db.collection("project_photos").doc(photo.id).update({isDeleted:true, deletedAt: new Date().toISOString()})}} className="w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="העבר לסל מחזור">🗑️</button>
+                                                    )}
+                                                    {currentUser.role === 'admin' && photo.isDeleted && (
+                                                        <button onClick={() => restorePhoto("project_photos", photo.id)} className="w-8 h-8 bg-emerald-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="שחזר תמונה מפח האשפה">♻️</button>
+                                                    )}
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                                 <div className="p-4 border-t border-white/10 bg-[#1e293b] shrink-0">
-                                    <label className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition shadow-lg cursor-pointer flex items-center justify-center gap-2">
-                                        {isUploading ? <span className="loader"></span> : `➕ העלה תמונה לתיקיית: ${activePhotoFolder}`}
-                                        <input type="file" accept="image/*" multiple className="hidden" onChange={handleProjectPhotosUpload} disabled={isUploading} />
-                                    </label>
+                                    {activePhotoFolder !== '🗑️ פח אשפה' && (
+                                        <label className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition shadow-lg cursor-pointer flex items-center justify-center gap-2">
+                                            {isUploading ? <span className="loader"></span> : `➕ העלה תמונה לתיקיית: ${activePhotoFolder}`}
+                                            <input type="file" accept="image/*" multiple className="hidden" onChange={handleProjectPhotosUpload} disabled={isUploading} />
+                                        </label>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1053,7 +1252,7 @@
                                             <div><label className="text-xs text-slate-400 font-bold mb-2 block">כמות להזמנה:</label><input name="qty" type="number" min="1" defaultValue="1" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center font-black text-xl border border-transparent focus:border-purple-500" required /></div>
                                         </div>
                                     )}
-                                    <button type="submit" className={`w-full text-white py-4 rounded-xl font-black text-lg mt-auto shrink-0 shadow-lg active:scale-95 transition flex items-center justify-center gap-2 ${materialReqType === 'stock' ? 'bg-amber-600' : 'bg-purple-600'}`}>{currentUser.role === 'admin' ? 'שייך פריט מיידית' : 'המשך לחתימה לאישור הבקשה ✍️'}</button>
+                                    <button type="submit" className={`w-full text-white py-4 rounded-xl font-black text-lg mt-auto shrink-0 shadow-lg active:scale-95 transition flex items-center justify-center gap-2 ${materialReqType === 'stock' ? 'bg-amber-600' : 'bg-purple-600'}`}>{(currentUser.role === 'admin' || currentUser.role === 'accounting') ? 'שייך פריט מיידית' : 'המשך לחתימה לאישור הבקשה ✍️'}</button>
                                 </form>
 
                                 <div className="mt-6 border-t border-white/10 pt-4 shrink-0">
@@ -1163,7 +1362,13 @@
                                     <div className="flex gap-2"><input name="u" placeholder="שם משתמש" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required /><input name="p" type="tel" placeholder="סיסמה" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required /></div>
                                     <input name="tz" type="tel" maxLength="9" placeholder="תעודת זהות (חובה לצורך חתימות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" required />
                                     <input name="phone" type="tel" placeholder="מספר טלפון (חובה)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest border border-transparent focus:border-blue-500" required />
-                                    <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold"><option value="worker">צוות שטח (ביצוע בשטח)</option><option value="driver">נהג חלוקה</option><option value="warehouse">מנהל מחסן</option><option value="admin">מנהל מערכת (הכל)</option></select>
+                                    <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold">
+                                        <option value="worker">צוות שטח (ביצוע בשטח)</option>
+                                        <option value="driver">נהג חלוקה</option>
+                                        <option value="warehouse">מנהל מחסן</option>
+                                        <option value="accounting">הנהלת חשבונות (רואה הכל צפייה בלבד)</option>
+                                        <option value="admin">מנהל מערכת (הכל)</option>
+                                    </select>
                                 </div>
                                 <div className="flex flex-col gap-3 mt-6"><button type="submit" className="w-full theme-bg text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">צור משתמש</button><button type="button" onClick={()=>setShowAddUser(false)} className="w-full text-slate-400 font-bold py-2">ביטול</button></div>
                             </form>
@@ -1180,14 +1385,20 @@
                                     <div className="flex gap-2"><input name="u" defaultValue={editUserModal.username} placeholder="שם משתמש" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required /><input name="p" defaultValue={editUserModal.password} placeholder="סיסמה" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required /></div>
                                     <input name="tz" defaultValue={editUserModal.tz} type="tel" maxLength="9" placeholder="תעודת זהות (חובה לצורך חתימות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" required />
                                     <input name="phone" defaultValue={editUserModal.phone} type="tel" placeholder="מספר טלפון (חובה)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest border border-transparent focus:border-blue-500" required />
-                                    <select value={editUserModal.role} onChange={(e) => setEditUserModal({...editUserModal, role: e.target.value})} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold"><option value="worker">צוות שטח (מבצע פרויקטים)</option><option value="driver">נהג חלוקה (רואה הכל)</option><option value="warehouse">מנהל מחסן (רואה הכל)</option><option value="admin">מנהל מערכת (גישה מלאה להכל)</option></select>
+                                    <select value={editUserModal.role} onChange={(e) => setEditUserModal({...editUserModal, role: e.target.value})} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold">
+                                        <option value="worker">צוות שטח (מבצע פרויקטים)</option>
+                                        <option value="driver">נהג חלוקה (רואה הכל)</option>
+                                        <option value="warehouse">מנהל מחסן (רואה הכל)</option>
+                                        <option value="accounting">הנהלת חשבונות (רואה הכל צפייה בלבד)</option>
+                                        <option value="admin">מנהל מערכת (גישה מלאה להכל)</option>
+                                    </select>
                                 </div>
                                 <div className="flex flex-col mt-6 gap-3"><button type="submit" className="w-full theme-bg text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">שמור</button><button type="button" onClick={()=>setEditUserModal(null)} className="w-full text-slate-400 font-bold py-2">ביטול</button></div>
                             </form>
                         </div>
                     )}
                     
-                    {/* עריכת פרויקט - מנהל */}
+                    {/* עריכת פרויקט - מנהל/הנה"ח */}
                     {editProjectModal && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
                             <form onSubmit={e => { e.preventDefault(); db.collection("projects").doc(editProjectModal.id).update({ name: e.target.n.value, address: e.target.a.value, clientPhone: e.target.phone.value }); setEditProjectModal(null); }} className="bg-[#1e293b] w-full md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-blue-500">
