@@ -198,18 +198,14 @@
                 return () => clearTimeout(timeout);
             }, [signRequirement, materialSignData, deliveryModal, cancelDeliveryModal, inventoryItemModal, invModalTab]);
 
-            // פונקציית תגמול והעלאת ניקוד עובדים (Gamification)
+            // העלאת נקודות לעובד
             const addScore = (points) => {
                 if (currentUser && currentUser.id && currentUser.role === 'worker') {
-                    db.collection("users").doc(currentUser.id).update({
-                        score: firebase.firestore.FieldValue.increment(points)
-                    });
+                    db.collection("users").doc(currentUser.id).update({ score: firebase.firestore.FieldValue.increment(points) });
                 }
             };
 
-            const downloadImage = (mediaUrl, filename) => {
-                const a = document.createElement('a'); a.href = mediaUrl; a.target = "_blank"; a.download = `${filename}`; a.click();
-            };
+            const downloadImage = (mediaUrl, filename) => { const a = document.createElement('a'); a.href = mediaUrl; a.target = "_blank"; a.download = `${filename}`; a.click(); };
 
             const handleLogin = (e) => {
                 e.preventDefault();
@@ -238,16 +234,12 @@
                 e.preventDefault();
                 if (matItem && matItem.status === 'pending') {
                     db.collection("projects").doc(proj.id).get().then(doc => {
-                        const p = doc.data();
-                        const updatedMats = p.allocatedMaterials.map(m => m.id === matItem.id ? { ...m, status: 'en_route' } : m);
+                        const p = doc.data(); const updatedMats = p.allocatedMaterials.map(m => m.id === matItem.id ? { ...m, status: 'en_route' } : m);
                         db.collection("projects").doc(proj.id).update({ allocatedMaterials: updatedMats });
                     });
                 } else if (!matItem && proj.allocatedMaterials) {
                     let changed = false;
-                    const updatedMats = proj.allocatedMaterials.map(m => {
-                        if (m.status === 'pending') { changed = true; return { ...m, status: 'en_route' }; }
-                        return m;
-                    });
+                    const updatedMats = proj.allocatedMaterials.map(m => { if (m.status === 'pending') { changed = true; return { ...m, status: 'en_route' }; } return m; });
                     if (changed) db.collection("projects").doc(proj.id).update({ allocatedMaterials: updatedMats });
                 }
 
@@ -256,14 +248,12 @@
                 setTimeout(() => { window.location.href = wazeUrl; }, 1000);
             };
 
-            // גרירה וסדר - פרויקטים
             const onProjDragStart = (e, id) => { if(currentUser.role==='accounting') return; setDraggedProjId(id); e.dataTransfer.effectAllowed = "move"; };
             const onProjDrop = (e, targetId) => {
                 e.preventDefault();
                 if (!draggedProjId || draggedProjId === targetId || currentUser.role==='accounting') return;
                 const list = [...activeProjectsList];
-                const draggedIdx = list.findIndex(p => p.id === draggedProjId);
-                const targetIdx = list.findIndex(p => p.id === targetId);
+                const draggedIdx = list.findIndex(p => p.id === draggedProjId); const targetIdx = list.findIndex(p => p.id === targetId);
                 if(draggedIdx === -1 || targetIdx === -1) return;
                 const [draggedItem] = list.splice(draggedIdx, 1);
                 list.splice(targetIdx, 0, draggedItem);
@@ -282,8 +272,7 @@
                                 reader.onload = (e) => {
                                     const img = new Image();
                                     img.onload = () => {
-                                        const canvas = document.createElement('canvas');
-                                        const MAX_WIDTH = 1200; const scaleSize = Math.min(1, MAX_WIDTH / img.width);
+                                        const canvas = document.createElement('canvas'); const scaleSize = Math.min(1, 1200 / img.width);
                                         canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
                                         const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                                         canvas.toBlob(b => resolve(b), 'image/jpeg', 0.8);
@@ -292,19 +281,14 @@
                                 };
                                 reader.readAsDataURL(file);
                             });
-                            const uniqueName = `images/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-                            const ref = storage.ref(uniqueName);
+                            const ref = storage.ref(`images/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`);
                             await ref.put(blob); fileUrl = await ref.getDownloadURL(); fileType = 'image';
                         } else if (file.type.startsWith('video/')) {
-                            const uniqueName = `videos/${Date.now()}_${file.name}`;
-                            const ref = storage.ref(uniqueName);
+                            const ref = storage.ref(`videos/${Date.now()}_${file.name}`);
                             await ref.put(file); fileUrl = await ref.getDownloadURL(); fileType = 'video';
                         }
-
                         if (fileUrl) {
-                            const docRef = await db.collection(collectionName).add({ 
-                                ...extraData, fileUrl: fileUrl, fileType: fileType, uploadedBy: currentUser.name, timestamp: new Date().toISOString(), isDeleted: false 
-                            });
+                            const docRef = await db.collection(collectionName).add({ ...extraData, fileUrl: fileUrl, fileType: fileType, uploadedBy: currentUser.name, timestamp: new Date().toISOString(), isDeleted: false });
                             return { id: docRef.id, url: fileUrl, type: fileType };
                         }
                     } catch (error) { throw error; }
@@ -315,7 +299,6 @@
             const confirmSignatureAndStatus = async (e) => {
                 e.preventDefault();
                 const remark = e.target.remark.value.trim();
-                
                 if (!currentUser.tz) return alert("⛔ שגיאה: למשתמש שלך לא מוגדרת תעודת זהות במערכת.");
                 if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס!");
                 if (!statusPhotoFiles || statusPhotoFiles.length === 0) return alert("📷 חובה להעלות לפחות תמונה אחת או וידאו מהשטח כדי לאשר!");
@@ -323,34 +306,21 @@
 
                 setIsUploading(true);
                 try {
-                    const uploadedData = await uploadFilesToStorageAndDB(statusPhotoFiles, "project_photos", { 
-                        projId: signRequirement.projId, projName: signRequirement.projName, folder: signRequirement.stageLabel 
-                    });
-
-                    const historyItem = {
-                        stageId: signRequirement.stageId,
-                        code: signRequirement.code,
-                        remark: remark,
-                        user: currentUser.name,
-                        date: new Date().toISOString(),
-                        files: uploadedData
-                    };
+                    const uploadedData = await uploadFilesToStorageAndDB(statusPhotoFiles, "project_photos", { projId: signRequirement.projId, projName: signRequirement.projName, folder: signRequirement.stageLabel });
+                    const historyItem = { stageId: signRequirement.stageId, code: signRequirement.code, remark: remark, user: currentUser.name, date: new Date().toISOString(), files: uploadedData };
 
                     await db.collection("projects").doc(signRequirement.projId).update({
-                        [`statuses.${signRequirement.stageId}`]: signRequirement.code,
-                        [`hasPhotos.${signRequirement.stageId}`]: true,
+                        [`statuses.${signRequirement.stageId}`]: signRequirement.code, [`hasPhotos.${signRequirement.stageId}`]: true,
                         [`signatures.${signRequirement.stageId}`]: { name: currentUser.name, id: currentUser.tz, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() },
                         statusHistory: firebase.firestore.FieldValue.arrayUnion(historyItem)
                     });
 
-                    addScore(10); // ניקוד על דיווח סטטוס
+                    addScore(10); 
                     logAttendanceAndLocation(`עדכון סטטוס: ${signRequirement.newStatus} בפרויקט ${signRequirement.projName}`);
-                    
                     setIsUploading(false); setStatusPhotoFiles(null); setSignRequirement(null); setStatusModal(null);
                 } catch (err) { alert("שגיאה בתהליך העדכון והעלאת התמונות."); setIsUploading(false); }
             };
 
-            // סינון וחיפוש לכל הטאבים
             const sTerm = (searchTerm || "").toLowerCase();
             const activeProjectsList = projects.filter(p => !p.isFinished && (p.name?.toLowerCase().includes(sTerm) || p.address?.toLowerCase().includes(sTerm))).sort((a,b) => (a.order || 0) - (b.order || 0));
             const finishedProjectsList = projects.filter(p => p.isFinished && (p.name?.toLowerCase().includes(sTerm) || p.address?.toLowerCase().includes(sTerm)));
@@ -363,7 +333,6 @@
             pendingDeliveriesList.sort((a,b) => (a.deliveryOrder || 0) - (b.deliveryOrder || 0));
             const pendingDeliveriesCount = pendingDeliveriesList.filter(d => d.status === 'pending').length; 
 
-            // שינוי סדר שלבי עבודה בהגדרות
             const moveStage = (index, dir) => {
                 const newStages = [...stages];
                 if (dir === 'up' && index > 0) { [newStages[index-1], newStages[index]] = [newStages[index], newStages[index-1]]; } 
@@ -391,56 +360,56 @@
                 <div className="min-h-screen flex flex-col relative pb-20 md:pb-0" style={{ backgroundColor: appBgColor }}>
                     <style>{`:root { --theme-color: ${appColor}; --theme-font: ${appFont}; --app-bg: ${appBgColor}; --app-card-bg: ${appCardBg}; --app-radius: ${appRadius}; } body { font-family: var(--theme-font), sans-serif !important; background-color: var(--app-bg) !important; } .theme-bg { background-color: var(--theme-color) !important; color: white !important; } .theme-text { color: var(--theme-color) !important; } .theme-border { border-color: var(--theme-color) !important; }`}</style>
 
-                    <header className="glass px-4 py-3 flex flex-col md:flex-row justify-between items-center sticky top-0 z-30 border-b border-white/5 gap-3 shadow-md" style={{ borderRadius: '0 0 var(--app-radius) var(--app-radius)' }}>
-                        <div className="flex w-full justify-between items-center md:w-auto md:border-l border-white/10 pl-6">
+                    <header className="glass px-4 py-3 flex flex-col lg:flex-row justify-between items-center sticky top-0 z-30 border-b border-white/5 gap-4 shadow-md w-full overflow-hidden" style={{ borderRadius: '0 0 var(--app-radius) var(--app-radius)' }}>
+                        <div className="flex w-full justify-between items-center lg:w-auto lg:border-l border-white/10 lg:pl-6 shrink-0">
                             <div className="flex items-center gap-3">
                                 <img src={LOGO_URL} alt="Logo" className="h-10 w-10 bg-white rounded-lg p-1 object-contain shadow-sm" onError={(e) => e.target.style.display='none'} />
                                 <div><div className="text-base font-black text-white leading-none">{portalName}</div><div className="text-[10px] font-bold theme-text mt-1">{currentUser.name} | {roleLabels[currentUser.role]} | 🏆 {currentUser.score||0} נק'</div></div>
                             </div>
-                            <div className="flex gap-2 md:hidden">
+                            <div className="flex items-center gap-2 lg:hidden">
                                 <button onClick={() => setLeaderboardModal(true)} className="w-10 h-10 flex items-center justify-center bg-amber-500/20 text-amber-400 rounded-full font-bold shadow-lg text-lg border border-amber-500/30" title="טבלת אלופי השטח">🏆</button>
                                 {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setShowAddProject(true)} className="theme-bg w-10 h-10 flex items-center justify-center rounded-full font-bold shadow-lg text-lg" title="פרויקט חדש">➕</button>}
+                                <button onClick={handleLogout} className="w-10 h-10 flex items-center justify-center bg-red-500/20 text-red-400 rounded-full font-bold text-sm border border-red-500/30" title="התנתק מהמערכת">🚪</button>
                             </div>
                         </div>
 
-                        <nav className="flex gap-2 w-full overflow-x-auto hide-scroll pb-1 md:w-auto md:pb-0">
-                            <button onClick={() => setActiveTab("board")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'board' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📊 רשימת פרויקטים</button>
+                        <nav className="flex gap-2 w-full overflow-x-auto hide-scroll pb-2 lg:pb-0 flex-1 lg:px-4 items-center">
+                            <button onClick={() => setActiveTab("board")} className={`shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'board' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📊 רשימת פרויקטים</button>
                             {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
                                 <>
-                                    {currentUser.role === 'admin' && <button onClick={() => setActiveTab("attendance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'attendance' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📍 נוכחות</button>}
-                                    <button onClick={() => setActiveTab("archive")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'archive' ? 'bg-slate-700 text-white shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📁 ארכיון</button>
+                                    {currentUser.role === 'admin' && <button onClick={() => setActiveTab("attendance")} className={`shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'attendance' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📍 נוכחות</button>}
+                                    <button onClick={() => setActiveTab("archive")} className={`shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'archive' ? 'bg-slate-700 text-white shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📁 ארכיון</button>
                                 </>
                             )}
                             {(currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
-                                <button onClick={() => setActiveTab("photos_global")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'photos_global' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📸 גלריה עולמית</button>
+                                <button onClick={() => setActiveTab("photos_global")} className={`shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'photos_global' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📸 גלריה עולמית</button>
                             )}
                             {(currentUser.role === 'admin' || currentUser.role === 'driver' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
-                                <button onClick={() => setActiveTab("deliveries")} className={`flex items-center gap-1 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'deliveries' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>🚚 חלוקה {pendingDeliveriesCount > 0 && <span className="bg-red-500 text-white rounded-full px-2 py-0.5 text-[10px] font-black">{pendingDeliveriesCount}</span>}</button>
+                                <button onClick={() => setActiveTab("deliveries")} className={`shrink-0 flex items-center gap-1 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'deliveries' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>🚚 חלוקה {pendingDeliveriesCount > 0 && <span className="bg-red-500 text-white rounded-full px-2 py-0.5 text-[10px] font-black">{pendingDeliveriesCount}</span>}</button>
                             )}
                             {(currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
-                                <button onClick={() => setActiveTab("inventory")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'inventory' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📦 מחסן</button>
+                                <button onClick={() => setActiveTab("inventory")} className={`shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'inventory' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>📦 מחסן</button>
                             )}
                             {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
-                                <button onClick={() => setActiveTab("finance")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'finance' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>💰 כספים</button>
+                                <button onClick={() => setActiveTab("finance")} className={`shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'finance' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>💰 כספים</button>
                             )}
                             {currentUser.role === 'admin' && (
                                 <>
-                                    <button onClick={() => { if(isUsersUnlocked) setActiveTab("users"); else setAuthUsersModal(true); }} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'users' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>👥 משתמשים</button>
-                                    <button onClick={() => setActiveTab("settings")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'settings' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>⚙️ הגדרות</button>
+                                    <button onClick={() => { if(isUsersUnlocked) setActiveTab("users"); else setAuthUsersModal(true); }} className={`shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'users' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>👥 משתמשים</button>
+                                    <button onClick={() => setActiveTab("settings")} className={`shrink-0 whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'settings' ? 'theme-bg shadow-lg' : 'bg-black/30 text-slate-300 border border-white/5'}`}>⚙️ הגדרות</button>
                                 </>
                             )}
                         </nav>
                         
-                        <div className="hidden md:flex gap-4 items-center min-w-max pr-4">
+                        <div className="hidden lg:flex gap-4 items-center shrink-0 pr-2">
                             <button onClick={() => setLeaderboardModal(true)} className="bg-amber-500/20 text-amber-400 border border-amber-500/50 px-4 py-2.5 rounded-xl font-bold shadow-lg transition-all text-sm hover:bg-amber-500 hover:text-white" title="דירוג אלופי השטח">🏆 טבלת ניקוד</button>
                             {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setShowAddProject(true)} className="theme-bg px-6 py-2.5 rounded-xl font-bold shadow-lg transition-all text-sm filter hover:brightness-110" title="צור פרויקט חדש במערכת">➕ פרויקט חדש</button>}
-                            <button onClick={handleLogout} className="text-slate-500 hover:text-white font-bold text-sm transition-colors" title="התנתק מהמערכת">התנתק</button>
+                            <button onClick={handleLogout} className="text-red-400 hover:text-white font-bold text-sm transition-colors bg-red-900/30 hover:bg-red-600 px-4 py-2.5 rounded-xl border border-red-500/30" title="התנתק מהמערכת">התנתק 🚪</button>
                         </div>
                     </header>
 
                     <main className="flex-1 p-3 md:p-8">
-                        
-                        {/* חיפוש כללי שיוצג ברוב הלשוניות */}
+                        {/* חיפוש גלובלי */}
                         {['board', 'users', 'inventory', 'deliveries', 'attendance', 'archive', 'finance'].includes(activeTab) && (
                             <div className="max-w-[1600px] mx-auto mb-6">
                                 <input type="text" placeholder={`🔍 חיפוש...`} value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="w-full md:w-80 p-4 rounded-xl bg-black/40 border border-white/10 text-white outline-none focus:border-blue-500 font-bold shadow-lg backdrop-blur-md transition-all" />
@@ -459,7 +428,6 @@
                                                 const doneCount = allStagesForProgress.filter(s => proj.statuses && proj.statuses[s.id] === 3).length; 
                                                 const progress = allStagesForProgress.length ? Math.round((doneCount / allStagesForProgress.length) * 100) : 0;
                                                 const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'טרם שובץ';
-                                                
                                                 const hasOpenOrder = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'pending');
                                                 const isEnRoute = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'en_route');
                                                 const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && hasOpenOrder;
@@ -918,7 +886,7 @@
                                         });
                                         setStageHistoryModal(null);
                                     }} className="flex-1 theme-bg text-white py-4 rounded-xl font-black text-lg active:scale-95 transition shadow-lg flex justify-center items-center gap-2"><span>✏️</span> עדכן סטטוס למשימה זו</button>
-                                    <button onClick={() => setStageHistoryModal(null)} className="md:w-32 bg-black/40 text-slate-300 font-bold py-4 rounded-xl hover:bg-white/10 transition">חזור</button>
+                                    <button onClick={() => setStageHistoryModal(null)} className="md:w-32 bg-black/40 text-slate-300 font-bold py-4 rounded-xl hover:bg-white/10 transition border border-white/5">חזור</button>
                                 </div>
                             </div>
                         </div>
