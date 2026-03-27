@@ -19,6 +19,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-storage-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
     
@@ -76,6 +77,7 @@
 
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
+        const storage = firebase.storage();
 
         const LOGO_URL = "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/logo.jpg";
 
@@ -92,6 +94,12 @@
             const [appFont, setAppFont] = useState("system-ui");
             const [portalName, setPortalName] = useState("אקוופולקו חן בע\"מ");
             const [officeEmail, setOfficeEmail] = useState("info@aquapoolco.co.il");
+            
+            // הגדרת סיסמה לאזור משתמשים
+            const [usersTabPassword, setUsersTabPassword] = useState("admin123");
+            const [authUsersModal, setAuthUsersModal] = useState(false);
+            const [usersPasswordInput, setUsersPasswordInput] = useState("");
+            const [isUsersUnlocked, setIsUsersUnlocked] = useState(false);
             
             const [users, setUsers] = useState([]);
             const [inventory, setInventory] = useState([]);
@@ -126,12 +134,12 @@
             const [invModalTab, setInvModalTab] = useState("gallery"); 
             const [inventoryPhotos, setInventoryPhotos] = useState([]);
             
-            const [statusPhotoFile, setStatusPhotoFile] = useState(null);
+            const [statusPhotoFiles, setStatusPhotoFiles] = useState(null);
             const [invDeliveryFiles, setInvDeliveryFiles] = useState(null);
             
             const [deliveryModal, setDeliveryModal] = useState(null);
             const [cancelDeliveryModal, setCancelDeliveryModal] = useState(null);
-            const [deliveryPhotoFile, setDeliveryPhotoFile] = useState(null);
+            const [deliveryPhotoFiles, setDeliveryPhotoFiles] = useState(null);
 
             const [draggedProjId, setDraggedProjId] = useState(null);
             const [draggedDelivId, setDraggedDelivId] = useState(null);
@@ -163,6 +171,7 @@
                         if (d.appFont) setAppFont(d.appFont);
                         if (d.portalName) setPortalName(d.portalName);
                         if (d.officeEmail) setOfficeEmail(d.officeEmail);
+                        if (d.usersTabPassword) setUsersTabPassword(d.usersTabPassword);
                     }
                 });
                 db.collection("projects").orderBy("createdAt", "desc").onSnapshot(snapshot => setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
@@ -308,8 +317,8 @@
                 db.collection(collection).doc(photoId).update({ isDeleted: firebase.firestore.FieldValue.delete(), deletedAt: firebase.firestore.FieldValue.delete() });
             };
 
-            const downloadImage = (base64, filename) => {
-                const a = document.createElement('a'); a.href = base64; a.download = `${filename}.jpg`; a.click();
+            const downloadImage = (mediaUrl, filename) => {
+                const a = document.createElement('a'); a.href = mediaUrl; a.target = "_blank"; a.download = `${filename}`; a.click();
             };
 
             const handleLogin = (e) => {
@@ -335,14 +344,31 @@
                 } else { if (callback) callback(); }
             };
 
-            const handleWazeClick = (proj, e) => {
+            const handleWazeClick = (proj, e, matItem = null) => {
                 e.preventDefault();
+                
+                // עדכון סטטוס ל"יצא לדרך" אם נלחץ ממשימת חלוקה
+                if (matItem && matItem.status === 'pending') {
+                    db.collection("projects").doc(proj.id).get().then(doc => {
+                        const p = doc.data();
+                        const updatedMats = p.allocatedMaterials.map(m => m.id === matItem.id ? { ...m, status: 'en_route' } : m);
+                        db.collection("projects").doc(proj.id).update({ allocatedMaterials: updatedMats });
+                    });
+                } else if (!matItem && proj.allocatedMaterials) {
+                    // לחץ מוויז כללי של הפרויקט - נבדוק אם יש פריטים שממתינים ונעביר ל"יצא לדרך"
+                    let changed = false;
+                    const updatedMats = proj.allocatedMaterials.map(m => {
+                        if (m.status === 'pending') { changed = true; return { ...m, status: 'en_route' }; }
+                        return m;
+                    });
+                    if (changed) db.collection("projects").doc(proj.id).update({ allocatedMaterials: updatedMats });
+                }
+
                 const wazeUrl = `waze://?q=${encodeURIComponent(proj.address)}&navigate=yes`;
                 logAttendanceAndLocation(`יציאה לניווט: ${proj.name}`, () => { window.location.href = wazeUrl; });
                 setTimeout(() => { window.location.href = wazeUrl; }, 1000);
             };
 
-            // הוספת משימה מיוחדת (טקסט חופשי) ע"י מנהל
             const handleAddCustomTask = (projId) => {
                 const taskName = window.prompt("הזן פרטי משימה מיוחדת (לפרויקט זה בלבד):");
                 if (!taskName || !taskName.trim()) return;
@@ -361,9 +387,8 @@
                 db.collection("projects").doc(projId).update({ customTasks: updatedTasks });
             };
 
-            // ייצוא מסודר של PDF עם רווחים תקינים (&nbsp;) כדי לפתור את בעיות הצפיפות
+            // ייצוא מסודר של PDF - הוספת כיווניות וטבלה עליונה למניעת בעיית הנקודותיים
             const exportPDF = (proj, callback = null) => {
-                const rtl = (text) => (text || '').toString().replace(/ /g, '&nbsp;');
                 const element = document.createElement('div');
                 const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => { const u = users.find(x=>x.id===uid); return u ? u.name : ''; }).filter(Boolean).join(', ') : 'טרם שובץ צוות';
 
@@ -375,30 +400,35 @@
                     let signatureImage = '';
                     if (sig && sig.signatureData) signatureImage = `<tr><td colspan="4" style="text-align:center; padding: 10px; border-bottom: 1px solid #ddd;"><img src="${sig.signatureData}" style="max-height: 80px; border: 1px solid #ccc; border-radius: 4px;" crossorigin="anonymous" /></td></tr>`;
                     
-                    const stageLabel = rtl(stage.label);
-                    const statusLabel = rtl(statusLabels[code]);
-                    const approver = sig ? `${rtl(sig.name)}<br/><span style="color:gray; font-size: 10px;">ת.ז:&nbsp;${sig.id}</span>` : '-';
-                    const sigDate = sig ? new Date(sig.date).toLocaleString('he-IL').replace(/,/g, ' - ').replace(/ /g, '&nbsp;') : '-';
+                    const stageLabel = (stage.label || '').replace(/ /g, ' ');
+                    const statusLabel = (statusLabels[code] || '').replace(/ /g, ' ');
+                    const approver = sig ? `${(sig.name||'').replace(/ /g, ' ')}<br/><span style="color:gray; font-size: 10px;">ת.ז: ${sig.id}</span>` : '-';
+                    const sigDate = sig ? new Date(sig.date).toLocaleString('he-IL').replace(/,/g, ' - ').replace(/ /g, ' ') : '-';
 
                     return `<tr><td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${stageLabel}</td><td style="padding: 10px; border-bottom: 1px solid #ddd;">${statusLabel}</td><td style="padding: 10px; border-bottom: 1px solid #ddd;">${approver}</td><td style="padding: 10px; border-bottom: 1px solid #ddd; direction: ltr; text-align: right;">${sigDate}</td></tr>${signatureImage}`;
                 }).join('');
 
-                const currentDate = new Date().toLocaleString('he-IL').replace(/,/g, ' - ').replace(/ /g, '&nbsp;');
+                const currentDate = new Date().toLocaleString('he-IL').replace(/,/g, ' - ').replace(/ /g, ' ');
+                const safeName = (proj.name || '').replace(/ /g, ' ');
+                const safeAddress = (proj.address || '').replace(/ /g, ' ');
+                const safeTeam = teamNames.replace(/ /g, ' ');
 
                 element.innerHTML = `<div style="direction: rtl; font-family: Arial, sans-serif; padding: 40px; color: #333; letter-spacing: 0px; word-spacing: 2px;">
                     <div style="text-align: center; margin-bottom: 20px;"><img src="${LOGO_URL}" style="max-height: 100px;" crossorigin="anonymous" /></div>
-                    <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px; font-size: 24px;">${rtl(portalName)}&nbsp;-&nbsp;דוח&nbsp;סטטוס&nbsp;פרויקט</h1>
-                    <h2 style="text-align: center; margin-top: 20px; font-size: 20px;">פרויקט:&nbsp;${rtl(proj.name)}</h2>
-                    <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 14px; border: 1px solid #e2e8f0;">
-                        <p style="margin: 5px 0;"><strong>כתובת&nbsp;האתר:</strong>&nbsp;${rtl(proj.address)}</p>
-                        <p style="margin: 5px 0;"><strong>צוות&nbsp;מבצע:</strong>&nbsp;${rtl(teamNames)}</p>
-                        <p style="margin: 5px 0;"><strong>תאריך&nbsp;הפקת&nbsp;דוח:</strong>&nbsp;<span style="direction: ltr; display: inline-block;">${currentDate}</span></p>
+                    <h1 style="color: ${appColor}; text-align: center; border-bottom: 2px solid ${appColor}; padding-bottom: 10px; font-size: 24px;">${portalName.replace(/ /g, ' ')} - דוח סטטוס פרויקט</h1>
+                    <h2 style="text-align: center; margin-top: 20px; font-size: 20px; direction: rtl;"><span>פרויקט:</span> ${safeName}</h2>
+                    <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px; font-size: 14px; border: 1px solid #e2e8f0; direction: rtl;">
+                        <table style="width: 100%; border: none; text-align: right; direction: rtl;">
+                            <tr><td style="width: 130px; padding: 4px 0;"><strong>כתובת האתר:</strong></td><td>${safeAddress}</td></tr>
+                            <tr><td style="padding: 4px 0;"><strong>צוות מבצע:</strong></td><td>${safeTeam}</td></tr>
+                            <tr><td style="padding: 4px 0;"><strong>תאריך הפקת דוח:</strong></td><td style="direction: ltr; text-align: right;">${currentDate}</td></tr>
+                        </table>
                     </div>
-                    <h3 style="color: #475569; margin-bottom: 15px; font-size: 16px;">פירוט&nbsp;אבני&nbsp;דרך&nbsp;וחתימות:</h3>
-                    <table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0; font-size: 14px;">
+                    <h3 style="color: #475569; margin-bottom: 15px; font-size: 16px;">פירוט אבני דרך וחתימות:</h3>
+                    <table style="width: 100%; border-collapse: collapse; text-align: right; border: 1px solid #e2e8f0; font-size: 14px; direction: rtl;">
                         <thead>
                             <tr style="background-color: ${appColor}; color: white;">
-                                <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב&nbsp;עבודה</th>
+                                <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">שלב עבודה</th>
                                 <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">סטטוס</th>
                                 <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">מאשר</th>
                                 <th style="padding: 12px; border-bottom: 2px solid #cbd5e1;">תאריך</th>
@@ -445,30 +475,70 @@
                 ctx.fillText(line2, canvas.width - 20, canvas.height - 18);
             };
 
-            const processAndUploadFiles = (files, collectionName, extraData) => {
-                if (!files || files.length === 0) return Promise.resolve([]);
-                const uploadPromises = Array.from(files).map(file => {
-                    return new Promise((resolve, reject) => {
-                        const reader = new FileReader(); 
-                        reader.onload = (event) => {
-                            const img = new Image();
-                            img.onload = () => {
-                                const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000; 
-                                const scaleSize = Math.min(1, MAX_WIDTH / img.width);
-                                canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
-                                const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                                
-                                const dateStr = new Date().toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
-                                const line1 = extraData.projName ? `${extraData.projName} - ${extraData.folder || 'כללי'}` : (extraData.itemId ? `מחסן קליטה` : `תיעוד כללי`);
-                                const line2 = `צולם ע"י: ${currentUser.name} | ${dateStr}`;
-                                drawWatermark(canvas, ctx, line1, line2);
+            // שימוש ב- Firebase Storage לתמיכה בקבצים כבדים ווידאו
+            const uploadFilesToStorageAndDB = async (files, collectionName, extraData) => {
+                if (!files || files.length === 0) return [];
+                const uploadPromises = Array.from(files).map(async (file) => {
+                    try {
+                        let fileUrl = "";
+                        let fileType = "";
 
-                                db.collection(collectionName).add({ ...extraData, imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString(), isDeleted: false }).then(resolve).catch(reject);
-                            };
-                            img.src = event.target.result;
-                        };
-                        reader.readAsDataURL(file);
-                    });
+                        if (file.type.startsWith('image/')) {
+                            // צריבת חותמת מים ואז העלאה ל-Storage
+                            const blob = await new Promise((resolve) => {
+                                const reader = new FileReader();
+                                reader.onload = (e) => {
+                                    const img = new Image();
+                                    img.onload = () => {
+                                        const canvas = document.createElement('canvas');
+                                        const MAX_WIDTH = 1200;
+                                        const scaleSize = Math.min(1, MAX_WIDTH / img.width);
+                                        canvas.width = img.width * scaleSize;
+                                        canvas.height = img.height * scaleSize;
+                                        const ctx = canvas.getContext('2d');
+                                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                        
+                                        const dateStr = new Date().toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+                                        const line1 = extraData.projName ? `${extraData.projName} - ${extraData.folder || 'כללי'}` : (extraData.itemId ? `מחסן קליטה` : `תיעוד כללי`);
+                                        const line2 = `צולם ע"י: ${currentUser.name} | ${dateStr}`;
+                                        drawWatermark(canvas, ctx, line1, line2);
+
+                                        canvas.toBlob(b => resolve(b), 'image/jpeg', 0.8);
+                                    };
+                                    img.src = e.target.result;
+                                };
+                                reader.readAsDataURL(file);
+                            });
+
+                            const uniqueName = `images/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+                            const ref = storage.ref(uniqueName);
+                            await ref.put(blob);
+                            fileUrl = await ref.getDownloadURL();
+                            fileType = 'image';
+
+                        } else if (file.type.startsWith('video/')) {
+                            // העלאת וידאו ישירות (ללא חותמת)
+                            const uniqueName = `videos/${Date.now()}_${file.name}`;
+                            const ref = storage.ref(uniqueName);
+                            await ref.put(file);
+                            fileUrl = await ref.getDownloadURL();
+                            fileType = 'video';
+                        }
+
+                        if (fileUrl) {
+                            return db.collection(collectionName).add({ 
+                                ...extraData, 
+                                fileUrl: fileUrl, 
+                                fileType: fileType, 
+                                uploadedBy: currentUser.name, 
+                                timestamp: new Date().toISOString(), 
+                                isDeleted: false 
+                            });
+                        }
+                    } catch (error) {
+                        console.error("Upload error:", error);
+                        throw error;
+                    }
                 });
                 return Promise.all(uploadPromises);
             };
@@ -477,46 +547,38 @@
                 const files = e.target.files;
                 if (!files || !files.length) return;
                 setIsUploading(true);
-                processAndUploadFiles(files, "project_photos", { projId: photosModal.id, projName: photosModal.name, folder: activePhotoFolder })
-                    .then(() => setIsUploading(false)).catch(() => { alert("שגיאה בהעלאת התמונות. אנא נסה שוב."); setIsUploading(false); });
+                uploadFilesToStorageAndDB(files, "project_photos", { projId: photosModal.id, projName: photosModal.name, folder: activePhotoFolder })
+                    .then(() => setIsUploading(false)).catch(() => { alert("שגיאה בהעלאת הקבצים. אנא נסה שוב."); setIsUploading(false); });
             };
 
-            const confirmSignatureAndStatus = (e) => {
+            const confirmSignatureAndStatus = async (e) => {
                 e.preventDefault();
                 if (!currentUser.tz) return alert("⛔ שגיאה: למשתמש שלך לא מוגדרת תעודת זהות במערכת.");
                 if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור הסטטוס!");
-                if (!statusPhotoFile) return alert("📷 חובה לצלם/לעלות תמונה מהשטח כדי לאשר סטטוס עבודה!");
+                if (!statusPhotoFiles || statusPhotoFiles.length === 0) return alert("📷 חובה להעלות לפחות תמונה אחת או וידאו מהשטח כדי לאשר!");
 
                 setIsUploading(true);
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000;
-                        const scaleSize = Math.min(1, MAX_WIDTH / img.width);
-                        canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
-                        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        
-                        const proj = projects.find(p => p.id === signRequirement.projId);
-                        const dateStr = new Date().toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
-                        drawWatermark(canvas, ctx, `${proj?.name} - שלב: ${signRequirement.stageLabel}`, `מאשר: ${currentUser.name} | ${dateStr}`);
+                try {
+                    await uploadFilesToStorageAndDB(statusPhotoFiles, "project_photos", { 
+                        projId: signRequirement.projId, 
+                        projName: signRequirement.projName, 
+                        folder: signRequirement.stageLabel 
+                    });
 
-                        db.collection("project_photos").add({
-                            projId: signRequirement.projId, projName: proj?.name, folder: signRequirement.stageLabel, imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString(), isDeleted: false
-                        }).then(() => {
-                            logAttendanceAndLocation(`עדכון סטטוס: ${signRequirement.newStatus} בפרויקט ${proj.name}`);
+                    await db.collection("projects").doc(signRequirement.projId).update({
+                        [`statuses.${signRequirement.stageId}`]: signRequirement.code,
+                        [`hasPhotos.${signRequirement.stageId}`]: true,
+                        [`signatures.${signRequirement.stageId}`]: { 
+                            name: currentUser.name, id: currentUser.tz, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() 
+                        }
+                    });
 
-                            db.collection("projects").doc(signRequirement.projId).update({
-                                [`statuses.${signRequirement.stageId}`]: signRequirement.code,
-                                [`signatures.${signRequirement.stageId}`]: { name: currentUser.name, id: currentUser.tz, date: new Date().toISOString(), signatureData: sigPad.current.toDataURL() }
-                            }).then(() => {
-                                setIsUploading(false); setStatusPhotoFile(null); setSignRequirement(null); setStatusModal(null);
-                            });
-                        }).catch(() => { alert("שגיאה בהעלאת התמונה ועדכון הסטטוס."); setIsUploading(false); });
-                    };
-                    img.src = event.target.result;
-                };
-                reader.readAsDataURL(statusPhotoFile);
+                    logAttendanceAndLocation(`עדכון סטטוס: ${signRequirement.newStatus} בפרויקט ${signRequirement.projName}`);
+                    setIsUploading(false); setStatusPhotoFiles(null); setSignRequirement(null); setStatusModal(null);
+                } catch (err) {
+                    alert("שגיאה בתהליך העדכון והעלאת התמונות.");
+                    setIsUploading(false);
+                }
             };
 
             const handleMaterialSubmit = (e) => {
@@ -566,37 +628,29 @@
                 }, 100);
             };
             
-            const handleDeliveryConfirm = (e) => {
+            const handleDeliveryConfirm = async (e) => {
                 e.preventDefault();
                 if (!sigPad.current || sigPad.current.isEmpty()) return alert("חובה לחתום לאישור המסירה!");
-                if (!deliveryPhotoFile) return alert("📷 חובה לצלם את הציוד שהושאר בשטח!");
+                if (!deliveryPhotoFiles || deliveryPhotoFiles.length === 0) return alert("📷 חובה להעלות תיעוד מהשטח!");
 
                 setIsUploading(true);
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas'); const MAX_WIDTH = 1000;
-                        const scaleSize = Math.min(1, MAX_WIDTH / img.width);
-                        canvas.width = img.width * scaleSize; canvas.height = img.height * scaleSize;
-                        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        
-                        const dateStr = new Date().toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
-                        drawWatermark(canvas, ctx, `אספקת ציוד: ${deliveryModal.projName}`, `נהג: ${currentUser.name} | ציוד: ${deliveryModal.qty} ${deliveryModal.matName} | ${dateStr}`);
-                        
-                        db.collection("project_photos").add({
-                            projId: deliveryModal.projId, projName: deliveryModal.projName, folder: "ציוד שסופק לשטח", imageBase64: canvas.toDataURL('image/jpeg', 0.6), uploadedBy: currentUser.name, timestamp: new Date().toISOString(), isDeleted: false
-                        }).then(() => {
-                            const proj = projects.find(p => p.id === deliveryModal.projId);
-                            const updated = proj.allocatedMaterials.map(m => m.id === deliveryModal.matId ? { ...m, status: 'delivered', deliveryDate: new Date().toISOString(), deliverySig: sigPad.current.toDataURL() } : m);
-                            db.collection("projects").doc(deliveryModal.projId).update({ allocatedMaterials: updated });
-                            logAttendanceAndLocation(`חלוקה בוצעה: ${deliveryModal.qty} ${deliveryModal.matName} לפרויקט ${deliveryModal.projName}`);
-                            setDeliveryModal(null); setDeliveryPhotoFile(null); setIsUploading(false);
-                        }).catch(() => { alert("שגיאה בהעלאת התמונה."); setIsUploading(false); });
-                    };
-                    img.src = event.target.result;
-                };
-                reader.readAsDataURL(deliveryPhotoFile);
+                try {
+                    await uploadFilesToStorageAndDB(deliveryPhotoFiles, "project_photos", { 
+                        projId: deliveryModal.projId, 
+                        projName: deliveryModal.projName, 
+                        folder: "ציוד שסופק לשטח" 
+                    });
+
+                    const proj = projects.find(p => p.id === deliveryModal.projId);
+                    const updated = proj.allocatedMaterials.map(m => m.id === deliveryModal.matId ? { ...m, status: 'delivered', deliveryDate: new Date().toISOString(), deliverySig: sigPad.current.toDataURL() } : m);
+                    await db.collection("projects").doc(deliveryModal.projId).update({ allocatedMaterials: updated });
+                    
+                    logAttendanceAndLocation(`חלוקה בוצעה: ${deliveryModal.qty} ${deliveryModal.matName} לפרויקט ${deliveryModal.projName}`);
+                    setDeliveryModal(null); setDeliveryPhotoFiles(null); setIsUploading(false);
+                } catch (err) {
+                    alert("שגיאה בתהליך האישור.");
+                    setIsUploading(false);
+                }
             };
 
             const handleDeliveryCancel = (e) => {
@@ -612,22 +666,27 @@
                 setCancelDeliveryModal(null);
             };
             
-            const handleInventoryReceive = (e) => {
+            const handleInventoryReceive = async (e) => {
                 e.preventDefault(); const qty = Number(e.target.qty.value);
                 if(!currentUser.tz) return alert("חסרה תעודת זהות בפרופיל המשתמש שלך, לא ניתן לקלוט סחורה.");
                 if(!invSigPad.current || invSigPad.current.isEmpty()) return alert("חובה לחתום על המסך לאישור קליטה!");
                 if(!invDeliveryFiles || invDeliveryFiles.length === 0) return alert("חובה להעלות תעודת משלוח או תמונה של הסחורה!");
                 
                 setIsUploading(true);
-                processAndUploadFiles(invDeliveryFiles, "inventory_photos", { itemId: inventoryItemModal.id, type: 'delivery_note', qtyAdded: qty, signatureName: currentUser.name, signatureData: invSigPad.current.toDataURL() })
-                .then(() => {
-                    const currentItem = inventory.find(i => i.id === inventoryItemModal.id);
-                    db.collection("inventory").doc(inventoryItemModal.id).update({ quantity: currentItem.quantity + qty }).then(() => {
-                        logAttendanceAndLocation(`קליטת סחורה מחסן: הוזנו ${qty} יח' של ${currentItem.name}`);
-                        alert("הסחורה נקלטה בהצלחה, התעודות נשמרו!");
-                        e.target.reset(); setInvDeliveryFiles(null); setInvModalTab("gallery"); setIsUploading(false);
+                try {
+                    await uploadFilesToStorageAndDB(invDeliveryFiles, "inventory_photos", { 
+                        itemId: inventoryItemModal.id, type: 'delivery_note', qtyAdded: qty, signatureName: currentUser.name, signatureData: invSigPad.current.toDataURL() 
                     });
-                }).catch(() => { alert("שגיאה בתהליך הקליטה ושמירת התמונה."); setIsUploading(false); });
+                    
+                    const currentItem = inventory.find(i => i.id === inventoryItemModal.id);
+                    await db.collection("inventory").doc(inventoryItemModal.id).update({ quantity: currentItem.quantity + qty });
+                    
+                    logAttendanceAndLocation(`קליטת סחורה מחסן: הוזנו ${qty} יח' של ${currentItem.name}`);
+                    alert("הסחורה נקלטה בהצלחה, התעודות נשמרו!");
+                    e.target.reset(); setInvDeliveryFiles(null); setInvModalTab("gallery"); setIsUploading(false);
+                } catch (err) {
+                    alert("שגיאה בתהליך הקליטה."); setIsUploading(false);
+                }
             };
 
             const alertStrictInventory = () => alert("⛔ על פי נהלי החברה, לא ניתן לשנות מלאי באופן ידני!\n\nהורדת מלאי מתבצעת אוטומטית בעת שיוך חומרים לפרויקט.\nהוספת מלאי מתבצעת רק דרך כפתור 'ניהול מלאי וקליטה' שדורש העלאת תעודת משלוח וחתימה.");
@@ -640,9 +699,9 @@
             const activeProjectsList = filteredProjects.filter(p => !p.isFinished).sort((a,b) => (a.order || 0) - (b.order || 0));
             const finishedProjectsList = filteredProjects.filter(p => p.isFinished);
 
-            let pendingDeliveriesList = projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending').map(m => ({...m, projId: p.id, projAddress: p.address, projName: p.name})));
+            let pendingDeliveriesList = projects.flatMap(p => (p.allocatedMaterials || []).filter(m => m.status === 'pending' || m.status === 'en_route').map(m => ({...m, projId: p.id, projAddress: p.address, projName: p.name})));
             pendingDeliveriesList.sort((a,b) => (a.deliveryOrder || 0) - (b.deliveryOrder || 0));
-            const pendingDeliveriesCount = pendingDeliveriesList.length;
+            const pendingDeliveriesCount = pendingDeliveriesList.filter(d => d.status === 'pending').length; // מראה רק את אלו שעוד לא יצאו לדרך
 
             const projectFolders = ['כללי', 'ציוד שסופק לשטח', ...stages.map(s => s.label), '🗑️ פח אשפה'];
 
@@ -714,7 +773,7 @@
                             )}
                             {currentUser.role === 'admin' && (
                                 <>
-                                    <button onClick={() => setActiveTab("users")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'users' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>👥 משתמשים</button>
+                                    <button onClick={() => { if(isUsersUnlocked) setActiveTab("users"); else setAuthUsersModal(true); }} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'users' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>👥 משתמשים</button>
                                     <button onClick={() => setActiveTab("settings")} className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold transition-all text-sm md:text-base ${activeTab === 'settings' ? 'theme-bg shadow-lg' : 'bg-slate-800 text-slate-300 border border-white/5'}`}>⚙️ הגדרות</button>
                                 </>
                             )}
@@ -743,6 +802,7 @@
                                                 const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'טרם שובץ';
                                                 
                                                 const hasOpenOrder = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'pending');
+                                                const isEnRoute = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'en_route');
                                                 const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && hasOpenOrder;
 
                                                 return (
@@ -761,10 +821,11 @@
                                                         <td>
                                                             <div className="font-black text-white text-lg flex items-center gap-2">
                                                                 {proj.name}
-                                                                {showIndicator && <span className="pulse-glow bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black border border-red-400 mr-2 shrink-0" title="קיימת משימת חלוקת ציוד פתוחה במחסן לפרויקט זה!">🚨 ממתין לציוד</span>}
+                                                                {showIndicator && <span className="pulse-glow bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black border border-red-400 mr-2 shrink-0">🚨 ממתין לציוד</span>}
+                                                                {isEnRoute && <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black mr-2 shrink-0">🚚 ציוד בדרך</span>}
                                                                 {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition shrink-0" title="ערוך פרטי פרויקט (כתובת, לקוח)">✏️</button>}
                                                             </div>
-                                                            <div className="flex items-center gap-2 mt-1 mb-1"><span className="text-xs text-slate-400">📍 {proj.address}</span><a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition" title="פתח ניווט בוויז">🚗 Waze</a></div>
+                                                            <div className="flex items-center gap-2 mt-1 mb-1"><span className="text-xs text-slate-400">📍 {proj.address}</span><a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition" title="פתח ניווט בוויז (יסמן ציוד פתוח כ'יצא לדרך')">🚗 Waze</a></div>
                                                             <div className="flex gap-2">
                                                                 <div onClick={() => currentUser.role === 'admin' ? setAssignModal({ id: proj.id, name: proj.name, users: Array.isArray(proj.assignedUsers) ? proj.assignedUsers : [] }) : null} className={`bg-slate-800 px-2 py-1 rounded text-[10px] font-bold inline-block border border-white/5 ${currentUser.role === 'admin' ? 'cursor-pointer hover:bg-slate-700 text-blue-300' : 'text-slate-300'}`} title="ניהול והקצאת עובדים לפרויקט">👥 צוות: {teamNames} {currentUser.role === 'admin' && '✏️'}</div>
                                                                 {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => sendWhatsAppToClient(proj)} className="bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366] hover:text-white px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1" title="הורד דוח ושלח אותו אוטומטית ללקוח בווצאפ">💬 שלח סטטוס</button>}
@@ -773,17 +834,29 @@
                                                         {stages.map(stage => {
                                                             const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
                                                             const color = code === 3 ? "bg-[#10b981] text-white shadow-lg shadow-emerald-500/20" : code === 2 ? "bg-[#ef4444] text-white" : code === 1 ? "bg-[#f59e0b] text-white" : "bg-[#334155] text-slate-300";
-                                                            return <td key={stage.id} onClick={() => { if(currentUser.role === 'driver' || currentUser.role === 'accounting') return alert("אין לך הרשאה לעדכן סטטוס."); setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code }); }}><div className={`status-cell ${color} ${(currentUser.role==='accounting'||currentUser.role==='driver') ? 'disabled' : ''}`} title={`לחץ לעדכון הסטטוס בשלב ${stage.label}`}>{statusLabels[code]}</div></td>;
+                                                            const hasPics = proj.hasPhotos && proj.hasPhotos[stage.id];
+                                                            return (
+                                                                <td key={stage.id} onClick={() => { if(currentUser.role === 'driver' || currentUser.role === 'accounting') return alert("אין לך הרשאה לעדכן סטטוס."); setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code }); }}>
+                                                                    <div className={`status-cell relative ${color} ${(currentUser.role==='accounting'||currentUser.role==='driver') ? 'disabled' : ''}`} title={`לחץ לעדכון הסטטוס בשלב ${stage.label}`}>
+                                                                        {statusLabels[code]}
+                                                                        {hasPics && (
+                                                                            <span onClick={(e) => { e.stopPropagation(); setPhotosModal(proj); setActivePhotoFolder(stage.label); }} className="absolute -bottom-2 bg-slate-900 border border-white/20 text-[10px] px-1.5 py-0.5 rounded-md hover:bg-slate-700 transition" title="צפייה בתמונות/וידאו של השלב">🖼️ צפה</span>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                            );
                                                         })}
                                                         <td className="px-2 align-top pt-4">
-                                                            <div className="flex flex-col gap-1.5 w-32 mx-auto">
+                                                            <div className="flex flex-col gap-2 w-32 mx-auto">
                                                                 {(proj.customTasks || []).map(task => {
                                                                     const code = (proj.statuses && proj.statuses[task.id]) !== undefined ? proj.statuses[task.id] : 0;
                                                                     const color = code === 3 ? "bg-[#10b981] text-white" : code === 2 ? "bg-[#ef4444] text-white" : code === 1 ? "bg-[#f59e0b] text-white" : "bg-[#334155] text-slate-300";
+                                                                    const hasPics = proj.hasPhotos && proj.hasPhotos[task.id];
                                                                     return (
                                                                         <div key={task.id} className="relative group flex items-center">
-                                                                            <button onClick={() => { if(currentUser.role === 'driver' || currentUser.role === 'accounting') return alert("אין הרשאה לעדכן."); setStatusModal({ projId: proj.id, stageId: task.id, projName: proj.name, stageLabel: task.label, currentCode: code }); }} className={`w-full text-[10px] p-1.5 rounded-lg font-bold ${color} truncate shadow-sm ${(currentUser.role==='accounting'||currentUser.role==='driver')?'opacity-80 cursor-not-allowed':''}`} title={task.label}>
-                                                                                {task.label}
+                                                                            <button onClick={() => { if(currentUser.role === 'driver' || currentUser.role === 'accounting') return alert("אין הרשאה לעדכן."); setStatusModal({ projId: proj.id, stageId: task.id, projName: proj.name, stageLabel: task.label, currentCode: code }); }} className={`w-full text-[10px] p-2 rounded-lg font-bold flex flex-col items-center justify-center ${color} shadow-sm ${(currentUser.role==='accounting'||currentUser.role==='driver')?'opacity-80 cursor-not-allowed':''}`} title={task.label}>
+                                                                                <span className="truncate w-full block text-center mb-0.5">{task.label}</span>
+                                                                                {hasPics && <span onClick={(e) => { e.stopPropagation(); setPhotosModal(proj); setActivePhotoFolder(task.label); }} className="bg-black/20 px-1 rounded hover:bg-black/40 w-max">🖼️ צפה</span>}
                                                                             </button>
                                                                             {currentUser.role === 'admin' && <button onClick={(e) => handleDeleteCustomTask(e, proj.id, task.id)} className="absolute -left-1.5 -top-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full w-4 h-4 text-[8px] opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity shadow-lg z-10" title="מחק משימה">X</button>}
                                                                         </div>
@@ -818,6 +891,7 @@
                                         const teamNames = (Array.isArray(proj.assignedUsers) && proj.assignedUsers.length > 0) ? proj.assignedUsers.map(uid => users.find(x=>x.id===uid)?.name || '').filter(Boolean).join(', ') : 'לא שובץ';
                                         
                                         const hasOpenOrder = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'pending');
+                                        const isEnRoute = Array.isArray(proj.allocatedMaterials) && proj.allocatedMaterials.some(m => m.status === 'en_route');
                                         const showIndicator = (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && hasOpenOrder;
 
                                         return (
@@ -836,6 +910,7 @@
                                                             {currentUser.role === 'admin' && <span className="drag-handle text-slate-500 hover:text-white shrink-0 ml-1" title="גרור כדי לסדר עדיפות">☰</span>}
                                                             {proj.name}
                                                             {showIndicator && <span className="pulse-glow bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black border border-red-400 mr-1 shrink-0">🚨 ממתין לציוד</span>}
+                                                            {isEnRoute && <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black mr-1 shrink-0">🚚 ציוד בדרך</span>}
                                                             {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => setEditProjectModal(proj)} className="text-blue-400 text-sm hover:text-blue-300 transition" title="ערוך פרטי פרויקט">✏️</button>}
                                                         </h3>
                                                         <a href="#" onClick={(e) => handleWazeClick(proj, e)} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg px-3 py-1.5 rounded-xl text-xs font-black shrink-0 flex items-center gap-1" title="ניווט מהיר בוויז לאתר הבנייה">🚗 Waze</a>
@@ -855,11 +930,14 @@
                                                             const isCustom = String(stage.id).startsWith('ct_');
                                                             const code = (proj.statuses && proj.statuses[stage.id]) !== undefined ? proj.statuses[stage.id] : 0;
                                                             const color = code === 3 ? "bg-[#10b981] text-white border-transparent" : code === 2 ? "bg-[#ef4444] text-white border-transparent" : code === 1 ? "bg-[#f59e0b] text-white border-transparent" : "bg-slate-800 text-slate-400 border border-white/10";
+                                                            const hasPics = proj.hasPhotos && proj.hasPhotos[stage.id];
+                                                            
                                                             return (
                                                                 <div key={stage.id} className="relative group">
                                                                     <button onClick={() => { if(currentUser.role === 'driver' || currentUser.role === 'accounting') return alert("אין הרשאה לעדכן."); setStatusModal({ projId: proj.id, stageId: stage.id, projName: proj.name, stageLabel: stage.label, currentCode: code }); }} className={`w-full p-3 rounded-2xl flex flex-col justify-center items-center font-bold text-sm transition shadow-sm ${(currentUser.role==='accounting'||currentUser.role==='driver')?'opacity-80 cursor-not-allowed':'active:scale-95'} ${color} ${isCustom ? 'ring-1 ring-blue-500/30' : ''}`} title={`לחץ לעדכון סטטוס השלב ומעבר לאישור וחתימה`}>
                                                                         <span className="text-[10px] opacity-70 mb-1 leading-none text-center w-full truncate">{stage.label}</span>
                                                                         <span>{statusLabels[code]}</span>
+                                                                        {hasPics && <span onClick={(e) => { e.stopPropagation(); setPhotosModal(proj); setActivePhotoFolder(stage.label); }} className="mt-1 bg-black/20 text-[10px] px-2 py-0.5 rounded-full hover:bg-black/40">🖼 צפה בתיעוד</span>}
                                                                     </button>
                                                                     {isCustom && currentUser.role === 'admin' && (
                                                                         <button onClick={(e) => handleDeleteCustomTask(e, proj.id, stage.id)} className="absolute -left-1.5 -top-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full w-5 h-5 text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10" title="מחק משימה מיוחדת">X</button>
@@ -886,8 +964,8 @@
                         
                         {activeTab === "photos_global" && (currentUser.role === 'admin' || currentUser.role === 'warehouse' || currentUser.role === 'accounting') && (
                             <div className="max-w-6xl mx-auto glass p-6 md:p-8 rounded-[2rem] border-t-4 border-indigo-500 animate-fade-in">
-                                <h2 className="text-2xl md:text-3xl font-black text-white mb-2">📸 גלריית תמונות חברה</h2>
-                                <p className="text-slate-400 text-sm mb-6">צפייה מרוכזת בכל התמונות שעלו מכל הפרויקטים (עד 200 האחרונות). {currentUser.role === 'admin' && 'אפשר לגרור תמונות לפח!'}</p>
+                                <h2 className="text-2xl md:text-3xl font-black text-white mb-2">📸 גלריית תמונות ווידאו</h2>
+                                <p className="text-slate-400 text-sm mb-6">צפייה מרוכזת בכל התמונות והסרטונים שעלו מכל הפרויקטים. {currentUser.role === 'admin' && 'אפשר לגרור לפח!'}</p>
                                 
                                 <div className="flex gap-2 mb-6 bg-slate-900 p-1.5 rounded-xl border border-white/5 w-full md:w-auto md:inline-flex flex-wrap md:flex-nowrap">
                                     <button onClick={() => setGlobalPhotoTab("execution")} className={`flex-1 md:flex-none md:px-8 py-3 rounded-lg font-black text-sm transition ${globalPhotoTab === 'execution' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>תיעוד ביצוע בשטח</button>
@@ -903,37 +981,46 @@
                                             if (globalPhotoTab === 'supply') return p.folder === 'ציוד שסופק לשטח';
                                             return p.folder !== 'ציוד שסופק לשטח';
                                         })
-                                        .map(photo => (
-                                        <div key={photo.id} draggable={currentUser.role === 'admin'} onDragStart={(e) => onPhotoDragStart(e, photo.id, "project_photos")} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg cursor-grab active:cursor-grabbing">
-                                            <img src={photo.imageBase64} alt="תיעוד כללי" className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} />
-                                            <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-3">
-                                                <p className="text-white text-xs font-black truncate">{photo.projName}</p>
-                                                <p className="text-indigo-300 text-[10px] font-bold bg-white/10 inline-block px-1.5 py-0.5 rounded mt-1">{photo.folder || 'כללי'}</p>
-                                            </div>
-                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3 flex justify-between items-end">
-                                                <div>
-                                                    <p className="text-white text-[11px] font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p>
-                                                    <p className="text-slate-400 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
-                                                    {photo.isDeleted && <p className="text-red-400 text-[10px] font-bold mt-1 bg-red-900/50 px-1 rounded">בפח מאז: {new Date(photo.deletedAt).toLocaleDateString('he-IL')}</p>}
+                                        .map(photo => {
+                                            const mediaUrl = photo.fileUrl || photo.imageBase64;
+                                            const isVideo = photo.fileType === 'video' || (mediaUrl && mediaUrl.includes('.mp4'));
+                                            
+                                            return (
+                                            <div key={photo.id} draggable={currentUser.role === 'admin'} onDragStart={(e) => onPhotoDragStart(e, photo.id, "project_photos")} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg cursor-grab active:cursor-grabbing">
+                                                {isVideo ? (
+                                                    <video src={mediaUrl} controls className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} />
+                                                ) : (
+                                                    <img src={mediaUrl} alt="תיעוד" className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} />
+                                                )}
+                                                
+                                                <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-3 pointer-events-none">
+                                                    <p className="text-white text-xs font-black truncate">{photo.projName}</p>
+                                                    <p className="text-indigo-300 text-[10px] font-bold bg-white/10 inline-block px-1.5 py-0.5 rounded mt-1">{photo.folder || 'כללי'}</p>
+                                                </div>
+                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3 flex justify-between items-end pointer-events-none">
+                                                    <div>
+                                                        <p className="text-white text-[11px] font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p>
+                                                        <p className="text-slate-400 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
+                                                        {photo.isDeleted && <p className="text-red-400 text-[10px] font-bold mt-1 bg-red-900/50 px-1 rounded">בפח מאז: {new Date(photo.deletedAt).toLocaleDateString('he-IL')}</p>}
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="absolute top-2 right-2 flex flex-col gap-2 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
+                                                        <button onClick={() => downloadImage(mediaUrl, `תיעוד_${photo.projName || 'כללי'}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="הורד לקובץ">⬇️</button>
+                                                    )}
+                                                    {currentUser.role === 'admin' && !photo.isDeleted && (
+                                                        <button onClick={() => {db.collection("project_photos").doc(photo.id).update({isDeleted:true, deletedAt: new Date().toISOString()})}} className="w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="העבר לסל מחזור">🗑️</button>
+                                                    )}
+                                                    {currentUser.role === 'admin' && photo.isDeleted && (
+                                                        <button onClick={() => restorePhoto("project_photos", photo.id)} className="w-8 h-8 bg-emerald-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="שחזר תמונה מפח האשפה">♻️</button>
+                                                    )}
                                                 </div>
                                             </div>
-                                            
-                                            <div className="absolute top-2 right-2 flex flex-col gap-2 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
-                                                    <button onClick={() => downloadImage(photo.imageBase64, `תמונה_${photo.projName || 'תיעוד'}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="הורד תמונה (עם פרטים צרובים)">⬇️</button>
-                                                )}
-                                                {currentUser.role === 'admin' && !photo.isDeleted && (
-                                                    <button onClick={() => {db.collection("project_photos").doc(photo.id).update({isDeleted:true, deletedAt: new Date().toISOString()})}} className="w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="העבר לסל מחזור">🗑️</button>
-                                                )}
-                                                {currentUser.role === 'admin' && photo.isDeleted && (
-                                                    <button onClick={() => restorePhoto("project_photos", photo.id)} className="w-8 h-8 bg-emerald-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="שחזר תמונה מפח האשפה">♻️</button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        )})}
                                     {globalPhotos.filter(p => globalPhotoTab === 'trash' ? p.isDeleted : (!p.isDeleted && (globalPhotoTab === 'supply' ? p.folder === 'ציוד שסופק לשטח' : p.folder !== 'ציוד שסופק לשטח'))).length === 0 && (
                                         <div className="col-span-full py-10 text-center text-slate-500 font-bold bg-slate-900/50 rounded-2xl border border-white/5">
-                                            אין תמונות בתיקייה זו כרגע.
+                                            אין תמונות או סרטונים בתיקייה זו כרגע.
                                         </div>
                                     )}
                                 </div>
@@ -952,21 +1039,24 @@
                                             onDragStart={(e) => onDelivDragStart(e, item.id)}
                                             onDragOver={onDelivDragOver}
                                             onDrop={(e) => onDelivDrop(e, item.id)}
-                                            className={`bg-slate-900 p-5 rounded-[2rem] flex flex-col md:flex-row justify-between items-start md:items-center border gap-4 shadow-lg transition-all ${draggedDelivId === item.id ? 'opacity-40 border-dashed border-cyan-500' : 'border-white/10'}`}
+                                            className={`bg-slate-900 p-5 rounded-[2rem] flex flex-col md:flex-row justify-between items-start md:items-center border gap-4 shadow-lg transition-all ${draggedDelivId === item.id ? 'opacity-40 border-dashed border-cyan-500' : 'border-white/10'} ${item.status === 'en_route' ? 'ring-2 ring-amber-500/50' : ''}`}
                                         >
                                             <div className="w-full flex items-center gap-3">
                                                 {(currentUser.role === 'admin' || currentUser.role === 'warehouse') && (
                                                     <div className="drag-handle text-slate-500 hover:text-white text-2xl" title="תפוס וגרור לשינוי סדר החלוקה של הנהג">☰</div>
                                                 )}
                                                 <div className="flex-1">
-                                                    <h3 className="font-black text-lg text-white mb-1">{item.projName}</h3>
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <h3 className="font-black text-lg text-white">{item.projName}</h3>
+                                                        {item.status === 'en_route' && <span className="bg-amber-500 text-white px-2 py-0.5 rounded text-[10px] font-black">🚚 בדרך</span>}
+                                                    </div>
                                                     <p className="text-xs text-slate-400 mb-2">📍 {item.projAddress}</p>
                                                     <p className="text-[11px] text-blue-300 font-bold bg-blue-500/10 border border-blue-500/20 inline-block px-2 py-1 rounded-lg mb-3">👤 הוזמן ע"י: {item.requestedBy || 'לא צוין'}</p>
-                                                    <div className={`block ${item.name.includes("הזמנה מיוחדת") ? 'bg-purple-500/20 border-purple-500/30 text-purple-400' : 'bg-amber-500/20 border-amber-500/30 text-amber-400'} border px-4 py-2 rounded-xl inline-block w-full md:w-auto text-center`} title="הציוד הנדרש ליעד זה"><span className="font-black text-lg text-center w-full block">📦 {item.quantity} x {item.name}</span></div>
+                                                    <div className={`block ${item.name.includes("הזמנה מיוחדת") ? 'bg-purple-500/20 border-purple-500/30 text-purple-400' : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'} border px-4 py-2 rounded-xl inline-block w-full md:w-auto text-center`} title="הציוד הנדרש ליעד זה"><span className="font-black text-lg text-center w-full block">📦 {item.quantity} x {item.name}</span></div>
                                                 </div>
                                             </div>
                                             <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0 flex-wrap shrink-0">
-                                                <a href={`waze://?q=${encodeURIComponent(item.projAddress)}&navigate=yes`} className="bg-slate-800 hover:bg-blue-600 text-white px-3 py-2 rounded-xl font-bold transition flex-1 text-center shadow-md text-sm flex items-center justify-center" title="פתח ניווט בוויז לאתר להעברת הציוד">🚗 Waze</a>
+                                                <button onClick={(e) => handleWazeClick({ id: item.projId, address: item.projAddress, name: item.projName }, e, item)} className={`bg-slate-800 hover:bg-amber-600 ${item.status==='en_route' ? 'text-amber-400' : 'text-white'} px-3 py-2 rounded-xl font-bold transition flex-1 text-center shadow-md text-sm flex items-center justify-center border border-white/5 hover:border-amber-500`} title="פתח ניווט בוויז וסמן שיצאת לדרך">🚗 Waze</button>
                                                 <button onClick={() => setDeliveryModal({ projId: item.projId, projName: item.projName, matId: item.id, matName: item.name, qty: item.quantity })} className="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-2 rounded-xl font-black transition flex-1 shadow-md text-sm" title="אשר שסיפקת את הציוד לאתר (מחייב העלאת תמונת הציוד וחתימה)">סופק ✓</button>
                                                 <button onClick={() => setCancelDeliveryModal({ projId: item.projId, projName: item.projName, matId: item.id, matName: item.name })} className="bg-red-900/60 text-red-400 hover:bg-red-600 hover:text-white px-3 py-2 rounded-xl font-black transition flex-1 shadow-md text-sm" title="בטל את משימת החלוקה והחזר לרשימת המלאי (מחייב הזנת סיבה)">ביטול 🗑️</button>
                                             </div>
@@ -1104,8 +1194,20 @@
                                     <div className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 lg:col-span-3 grid md:grid-cols-2 gap-5 shadow-lg">
                                         <h3 className="text-lg font-black text-white md:col-span-2">🏢 הגדרות חברה ועסק</h3>
                                         <div><label className="text-xs text-slate-400 block mb-1 font-bold">שם החברה</label><input value={portalName} onChange={e=>setPortalName(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none font-bold" /></div>
-                                        <div><label className="text-xs text-slate-400 block mb-1 font-bold">מייל המשרד</label><input type="email" value={officeEmail} onChange={e=>setOfficeEmail(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none font-bold dir-ltr text-right" /></div>
+                                        <div><label className="text-xs text-slate-400 block mb-1 font-bold">מייל המשרד (לאיפוס סיסמאות)</label><input type="email" value={officeEmail} onChange={e=>setOfficeEmail(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none font-bold dir-ltr text-right" /></div>
                                     </div>
+                                    
+                                    <div className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 shadow-lg">
+                                        <h3 className="text-lg font-black text-white mb-4">🔐 אבטחת גישה</h3>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="text-xs text-slate-400 block mb-1 font-bold">סיסמה ללשונית "משתמשים"</label>
+                                                <input type="text" value={usersTabPassword} onChange={e=>setUsersTabPassword(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none font-mono tracking-widest" />
+                                                <p className="text-[10px] text-slate-500 mt-1">משמשת כסיסמת מנהל נוספת לאזור הרגיש.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 shadow-lg">
                                         <h3 className="text-lg font-black text-white mb-4">🎨 מראה ועיצוב</h3>
                                         <div className="space-y-4">
@@ -1113,8 +1215,8 @@
                                             <div><label className="text-xs text-slate-400 block mb-1 font-bold">גופן מערכת</label><select value={appFont} onChange={e=>setAppFont(e.target.value)} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none text-center"><option value="system-ui">ברירת מחדל</option><option value="Arial">אריאל</option><option value="Tahoma">טאהומה</option><option value="Heebo">Heebo</option></select></div>
                                         </div>
                                     </div>
-                                    <div className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 shadow-lg">
-                                        <h3 className="text-lg font-black text-white mb-4">📋 שלבי ביצוע</h3>
+                                    <div className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 shadow-lg lg:col-span-2">
+                                        <h3 className="text-lg font-black text-white mb-4">📋 שלבי ביצוע עבודה</h3>
                                         <div className="space-y-3 mb-4">
                                             {stages.map((stage, index) => (
                                                 <div key={stage.id} className="flex items-center gap-2"><div className="text-slate-500 font-black text-xs">{index + 1}.</div><input value={stage.label} onChange={(e) => { const n=[...stages]; n[index].label=e.target.value; setStages(n); }} className="flex-1 bg-slate-800 text-white p-3 rounded-xl outline-none font-bold text-sm" /><button onClick={() => setStages(stages.filter(s => s.id !== stage.id))} className="text-red-400 bg-red-400/10 font-black p-3 rounded-xl active:scale-95" title="מחק שלב זה לחלוטין">X</button></div>
@@ -1122,16 +1224,8 @@
                                         </div>
                                         <button onClick={() => setStages([...stages, { id: 's'+Date.now(), label: 'שלב חדש' }])} className="w-full bg-slate-800 text-white p-3 rounded-xl font-black transition active:scale-95">➕ הוסף שלב</button>
                                     </div>
-                                    <div className="bg-slate-900 p-5 rounded-[2rem] border border-white/5 shadow-lg">
-                                        <h3 className="text-lg font-black text-white mb-4">🏷️ טקסט סטטוסים</h3>
-                                        <div className="space-y-4">
-                                            {[ { code: 0, title: "התחלתי", color: "border-slate-500" }, { code: 1, title: "בתהליך", color: "border-amber-500" }, { code: 2, title: "בעיה", color: "border-red-500" }, { code: 3, title: "סיום", color: "border-emerald-500" } ].map(opt => (
-                                                <div key={opt.code} className={`pl-4 border-l-4 ${opt.color}`}><label className="text-[10px] font-bold text-slate-400 block mb-1">{opt.title}</label><input value={statusLabels[opt.code]} onChange={(e) => setStatusLabels({...statusLabels, [opt.code]: e.target.value})} className="w-full bg-slate-800 text-white p-3 rounded-xl outline-none text-sm font-bold" /></div>
-                                            ))}
-                                        </div>
-                                    </div>
                                 </div>
-                                <button onClick={() => { db.collection("settings").doc("general").update({ stages, statusLabels, appColor, appFont, portalName, officeEmail }); alert("נשמר בהצלחה!"); }} className="w-full mt-6 text-white py-4 rounded-[1.5rem] font-black shadow-lg transition theme-bg active:scale-95 text-lg" title="שמור את כל הגדרות העסק והשלבים אל ענן המערכת">💾 שמור הגדרות מערכת</button>
+                                <button onClick={() => { db.collection("settings").doc("general").update({ stages, statusLabels, appColor, appFont, portalName, officeEmail, usersTabPassword }); alert("ההגדרות נשמרו בהצלחה!"); }} className="w-full mt-6 text-white py-4 rounded-[1.5rem] font-black shadow-lg transition theme-bg active:scale-95 text-lg" title="שמור את כל הגדרות העסק והשלבים אל ענן המערכת">💾 שמור הגדרות מערכת</button>
                             </div>
                         )}
                     </main>
@@ -1153,16 +1247,23 @@
                                         <div className="h-full">
                                             {inventoryPhotos.length === 0 ? <div className="h-full flex flex-col items-center justify-center text-slate-500"><span className="text-6xl mb-4 opacity-20">📂</span><p className="font-bold">אין תעודות משלוח לפריט זה.</p></div> : (
                                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                                    {inventoryPhotos.map(photo => (
+                                                    {inventoryPhotos.map(photo => {
+                                                        const mediaUrl = photo.fileUrl || photo.imageBase64;
+                                                        const isVideo = photo.fileType === 'video' || (mediaUrl && mediaUrl.includes('.mp4'));
+                                                        return (
                                                         <div key={photo.id} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg">
-                                                            <img src={photo.imageBase64} alt="תעודה" className="w-full h-full object-cover" />
-                                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3"><p className="text-emerald-400 text-xs font-black">נקלט: +{photo.qtyAdded}</p><p className="text-white text-[10px] font-bold">חתם: {photo.signatureName}</p><p className="text-slate-300 text-[10px] dir-ltr text-right">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p></div>
+                                                            {isVideo ? (
+                                                                <video src={mediaUrl} controls className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <img src={mediaUrl} alt="תעודה" className="w-full h-full object-cover" />
+                                                            )}
+                                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pointer-events-none"><p className="text-emerald-400 text-xs font-black">נקלט: +{photo.qtyAdded}</p><p className="text-white text-[10px] font-bold">חתם: {photo.signatureName}</p><p className="text-slate-300 text-[10px] dir-ltr text-right">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p></div>
                                                             <div className="absolute top-2 right-2 flex flex-col gap-2 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => downloadImage(photo.imageBase64, `תעודת_משלוח_${inventoryItemModal.name}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg">⬇️</button>}
+                                                                {(currentUser.role === 'admin' || currentUser.role === 'accounting') && <button onClick={() => downloadImage(mediaUrl, `תעודת_משלוח_${inventoryItemModal.name}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg">⬇️</button>}
                                                                 {currentUser.role === 'admin' && <button onClick={() => {if(window.confirm("למחוק?")) db.collection("inventory_photos").doc(photo.id).delete();}} className="w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg">🗑️</button>}
                                                             </div>
                                                         </div>
-                                                    ))}
+                                                    )})}
                                                 </div>
                                             )}
                                         </div>
@@ -1172,7 +1273,7 @@
                                             <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl"><label className="text-xs text-emerald-400 font-bold block mb-2">כמה יחידות הגיעו עכשיו?</label><input name="qty" type="number" min="1" defaultValue="1" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-center font-black text-3xl border border-transparent focus:border-emerald-500" required /></div>
                                             <div className="bg-slate-800 border border-white/5 p-4 rounded-xl"><p className="text-slate-400 text-xs font-bold mb-1">מורשה חתימה:</p><p className="text-white font-black text-lg">{currentUser.name} <span className="text-slate-500 font-normal text-sm">(ת.ז: {currentUser.tz || 'חסר'})</span></p></div>
                                             <div className="flex flex-col min-h-[180px]"><div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-400 font-bold">חתימה לאישור קליטת הסחורה (חובה):</label><button type="button" onClick={() => invSigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button></div><div className="flex-1 w-full bg-white rounded-2xl border-4 border-emerald-500/50 overflow-hidden touch-none relative"><canvas ref={invCanvasRef} className="absolute inset-0 w-full h-full touch-none" /></div></div>
-                                            <div className="pt-2"><label className="text-xs text-amber-400 font-bold block mb-2">* חובה להעלות תעודת משלוח או תמונות של הציוד:</label><label className={`w-full py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed ${invDeliveryFiles ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500' : 'bg-slate-800 hover:bg-slate-700 text-white border-white/30'}`}>{isUploading ? <span className="loader"></span> : (invDeliveryFiles ? "תמונה נבחרה מוכנה לקליטה ✓" : "📷 לחץ לבחירת תמונות / צילום")}<input type="file" accept="image/*" multiple className="hidden" onChange={(e) => setInvDeliveryFiles(e.target.files)} disabled={isUploading} /></label></div>
+                                            <div className="pt-2"><label className="text-xs text-amber-400 font-bold block mb-2">* חובה להעלות תעודת משלוח או תמונות של הציוד:</label><label className={`w-full py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed ${invDeliveryFiles && invDeliveryFiles.length > 0 ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500' : 'bg-slate-800 hover:bg-slate-700 text-white border-white/30'}`}>{isUploading ? <span className="loader"></span> : ((invDeliveryFiles && invDeliveryFiles.length > 0) ? `${invDeliveryFiles.length} קבצים נבחרו ✓` : "📷 לחץ לבחירת תמונות / צילום")}<input type="file" accept="image/*,video/*" multiple className="hidden" onChange={(e) => setInvDeliveryFiles(e.target.files)} disabled={isUploading} /></label></div>
                                             <button type="submit" disabled={isUploading} className={`w-full text-white py-4 rounded-xl font-black text-lg shadow-lg active:scale-95 transition flex items-center justify-center gap-2 mt-4 ${isUploading ? 'bg-slate-600' : 'bg-emerald-600'}`}>{isUploading ? 'קולט סחורה...' : 'אשר קליטה למלאי ✓'}</button>
                                         </form>
                                     )}
@@ -1193,12 +1294,20 @@
                                     {projectFolders.map(folder => <button key={folder} onClick={() => setActivePhotoFolder(folder)} className={`whitespace-nowrap px-4 py-2 rounded-xl font-bold text-sm transition-all ${activePhotoFolder === folder ? (folder==='🗑️ פח אשפה' ? 'bg-red-600' : 'bg-blue-600') + ' text-white shadow-lg' : 'bg-slate-800 text-slate-400'}`}>📁 {folder}</button>)}
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-900/50">
-                                    {currentProjectPhotos.filter(p => activePhotoFolder === '🗑️ פח אשפה' ? p.isDeleted : (!p.isDeleted && (p.folder || 'כללי') === activePhotoFolder)).length === 0 && !isUploading && <div className="h-full flex flex-col items-center justify-center text-slate-500"><span className="text-6xl mb-4 opacity-20">📷</span><p className="font-bold">אין תמונות בתיקיית "{activePhotoFolder}".</p></div>}
+                                    {currentProjectPhotos.filter(p => activePhotoFolder === '🗑️ פח אשפה' ? p.isDeleted : (!p.isDeleted && (p.folder || 'כללי') === activePhotoFolder)).length === 0 && !isUploading && <div className="h-full flex flex-col items-center justify-center text-slate-500"><span className="text-6xl mb-4 opacity-20">📷</span><p className="font-bold">אין תמונות או סרטונים בתיקיית "{activePhotoFolder}".</p></div>}
                                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                        {currentProjectPhotos.filter(p => activePhotoFolder === '🗑️ פח אשפה' ? p.isDeleted : (!p.isDeleted && (p.folder || 'כללי') === activePhotoFolder)).map(photo => (
+                                        {currentProjectPhotos.filter(p => activePhotoFolder === '🗑️ פח אשפה' ? p.isDeleted : (!p.isDeleted && (p.folder || 'כללי') === activePhotoFolder)).map(photo => {
+                                            const mediaUrl = photo.fileUrl || photo.imageBase64;
+                                            const isVideo = photo.fileType === 'video' || (mediaUrl && mediaUrl.includes('.mp4'));
+                                            return (
                                             <div key={photo.id} draggable={currentUser.role === 'admin'} onDragStart={(e) => onPhotoDragStart(e, photo.id, "project_photos")} className="relative group rounded-2xl overflow-hidden bg-slate-800 border border-white/5 aspect-[3/4] shadow-lg cursor-grab active:cursor-grabbing">
-                                                <img src={photo.imageBase64} alt="תיעוד" className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} />
-                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+                                                {isVideo ? (
+                                                    <video src={mediaUrl} controls className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} />
+                                                ) : (
+                                                    <img src={mediaUrl} alt="תיעוד" className={`w-full h-full object-cover ${photo.isDeleted ? 'opacity-50 grayscale' : ''}`} />
+                                                )}
+                                                
+                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pointer-events-none">
                                                     <p className="text-white text-xs font-bold flex items-center gap-1">👤 {photo.uploadedBy}</p>
                                                     <p className="text-slate-300 text-[10px] dir-ltr text-right mt-1">{new Date(photo.timestamp).toLocaleString('he-IL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
                                                     {photo.isDeleted && <p className="text-red-400 text-[10px] font-bold mt-1 bg-red-900/50 px-1 rounded">בפח מאז: {new Date(photo.deletedAt).toLocaleDateString('he-IL')}</p>}
@@ -1206,7 +1315,7 @@
                                                 
                                                 <div className="absolute top-2 right-2 flex flex-col gap-2 md:opacity-0 group-hover:opacity-100 transition-opacity">
                                                     {(currentUser.role === 'admin' || currentUser.role === 'accounting') && (
-                                                        <button onClick={() => downloadImage(photo.imageBase64, `תמונה_${photosModal.name || 'תיעוד'}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="הורד תמונה (עם פרטים צרובים)">⬇️</button>
+                                                        <button onClick={() => downloadImage(mediaUrl, `תיעוד_${photosModal.name || 'כללי'}`)} className="w-8 h-8 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="הורד קובץ">⬇️</button>
                                                     )}
                                                     {currentUser.role === 'admin' && !photo.isDeleted && (
                                                         <button onClick={() => {db.collection("project_photos").doc(photo.id).update({isDeleted:true, deletedAt: new Date().toISOString()})}} className="w-8 h-8 bg-red-600 text-white rounded-lg font-bold text-sm shadow-lg flex items-center justify-center" title="העבר לסל מחזור">🗑️</button>
@@ -1216,14 +1325,14 @@
                                                     )}
                                                 </div>
                                             </div>
-                                        ))}
+                                        )})}
                                     </div>
                                 </div>
                                 <div className="p-4 border-t border-white/10 bg-[#1e293b] shrink-0">
                                     {activePhotoFolder !== '🗑️ פח אשפה' && (
                                         <label className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition shadow-lg cursor-pointer flex items-center justify-center gap-2">
-                                            {isUploading ? <span className="loader"></span> : `➕ העלה תמונה לתיקיית: ${activePhotoFolder}`}
-                                            <input type="file" accept="image/*" multiple className="hidden" onChange={handleProjectPhotosUpload} disabled={isUploading} />
+                                            {isUploading ? <span className="loader"></span> : `➕ העלה קבצים לתיקיית: ${activePhotoFolder}`}
+                                            <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleProjectPhotosUpload} disabled={isUploading} />
                                         </label>
                                     )}
                                 </div>
@@ -1259,12 +1368,15 @@
                                     <h4 className="text-xs text-slate-400 font-bold mb-3 flex items-center justify-between"><span>ציוד שכבר שויך לפרויקט:</span><span className="bg-slate-800 px-2 py-1 rounded text-white">{(materialsModal.allocatedMaterials || []).length}</span></h4>
                                     <div className="max-h-32 overflow-y-auto space-y-2 pr-1">
                                         {(materialsModal.allocatedMaterials || []).length === 0 && <p className="text-xs text-slate-500 text-center py-4">אין ציוד משויך עדיין.</p>}
-                                        {(materialsModal.allocatedMaterials || []).map(m => (
+                                        {(materialsModal.allocatedMaterials || []).map(m => {
+                                            const statusText = m.status === 'delivered' ? 'סופק' : (m.status === 'en_route' ? 'בדרך' : 'ממתין');
+                                            const statusColor = m.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-400' : (m.status === 'en_route' ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300');
+                                            return (
                                             <div key={m.id} className="flex justify-between items-center p-3 bg-slate-900 rounded-xl border border-white/5">
                                                 <div className="flex flex-col"><span className={`font-bold text-sm ${m.name.includes("הזמנה מיוחדת") ? 'text-purple-400' : 'text-white'}`}>{m.name.replace("הזמנה מיוחדת: ", "")}</span>{m.name.includes("הזמנה מיוחדת") && <span className="text-[10px] text-purple-500 font-bold uppercase">הזמנה מיוחדת</span>}</div>
-                                                <div className="flex items-center gap-3"><span className="text-white font-black bg-slate-800 px-2 py-1 rounded">x{m.quantity}</span><span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${m.status==='delivered'?'bg-emerald-500/20 text-emerald-400':'bg-amber-500/20 text-amber-400'}`}>{m.status==='delivered'?'סופק':'ממתין'}</span></div>
+                                                <div className="flex items-center gap-3"><span className="text-white font-black bg-slate-800 px-2 py-1 rounded">x{m.quantity}</span><span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${statusColor}`}>{statusText}</span></div>
                                             </div>
-                                        ))}
+                                        )})}
                                     </div>
                                 </div>
                             </div>
@@ -1294,10 +1406,10 @@
                                 <p className="text-center text-slate-400 text-sm mb-4 shrink-0">פרויקט: {deliveryModal.projName}<br/><span className="text-white font-bold">{deliveryModal.qty} x {deliveryModal.matName}</span></p>
                                 
                                 <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-                                    <div className="pt-2"><label className="text-xs text-amber-400 font-bold block mb-2">* חובה לצלם את הציוד שהושאר בשטח:</label><label className={`w-full py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed ${deliveryPhotoFile ? 'bg-cyan-600/20 text-cyan-400 border-cyan-500' : 'bg-slate-800 hover:bg-slate-700 text-white border-white/30'}`}>{isUploading ? <span className="loader"></span> : (deliveryPhotoFile ? "תמונה נבחרה ✓" : "📷 צלם ציוד שסופק")}<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setDeliveryPhotoFile(e.target.files[0])} disabled={isUploading} /></label></div>
+                                    <div className="pt-2"><label className="text-xs text-amber-400 font-bold block mb-2">* חובה להעלות תיעוד של הציוד שהושאר בשטח:</label><label className={`w-full py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed ${deliveryPhotoFiles && deliveryPhotoFiles.length > 0 ? 'bg-cyan-600/20 text-cyan-400 border-cyan-500' : 'bg-slate-800 hover:bg-slate-700 text-white border-white/30'}`}>{isUploading ? <span className="loader"></span> : ((deliveryPhotoFiles && deliveryPhotoFiles.length > 0) ? `${deliveryPhotoFiles.length} קבצים נבחרו ✓` : "📷 לחץ לבחירת תמונות / צילום וידאו")}<input type="file" accept="image/*,video/*" multiple capture="environment" className="hidden" onChange={(e) => setDeliveryPhotoFiles(e.target.files)} disabled={isUploading} /></label></div>
                                     <div className="flex-1 flex flex-col min-h-[150px]"><div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-400 font-bold">חתימת הנהג/מקבל (חובה):</label><button type="button" onClick={() => sigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button></div><div className="flex-1 w-full bg-white rounded-2xl border-4 border-cyan-500/50 overflow-hidden touch-none relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" /></div></div>
                                 </div>
-                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0"><button type="submit" disabled={isUploading} className={`flex-1 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition flex justify-center items-center gap-2 ${isUploading ? 'bg-slate-600' : 'bg-cyan-600'}`}>{isUploading ? 'מעדכן...' : 'סופק בהצלחה ✓'}</button><button type="button" onClick={() => {setDeliveryModal(null); setDeliveryPhotoFile(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button></div>
+                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0"><button type="submit" disabled={isUploading} className={`flex-1 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition flex justify-center items-center gap-2 ${isUploading ? 'bg-slate-600' : 'bg-cyan-600'}`}>{isUploading ? 'מעדכן...' : 'סופק בהצלחה ✓'}</button><button type="button" onClick={() => {setDeliveryModal(null); setDeliveryPhotoFiles(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button></div>
                             </form>
                         </div>
                     )}
@@ -1329,9 +1441,9 @@
                                 <div className="flex-1 overflow-y-auto space-y-4 pr-1">
                                     <div className="bg-slate-800 border border-white/5 p-4 rounded-xl"><p className="text-slate-400 text-xs font-bold mb-1">מורשה חתימה:</p><p className="text-white font-black text-lg">{currentUser.name} <span className="text-slate-500 font-normal text-sm">(ת.ז: {currentUser.tz || 'חסר'})</span></p></div>
                                     <div className="flex-1 flex flex-col min-h-[150px]"><div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-400 font-bold">חתימת העובד בשטח (חובה):</label><button type="button" onClick={() => sigPad.current.clear()} className="bg-slate-700 text-white px-3 py-1 rounded text-xs font-bold active:bg-slate-600">נקה</button></div><div className="flex-1 w-full bg-white rounded-2xl border-4 border-blue-500/50 overflow-hidden touch-none relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" /></div></div>
-                                    <div className="pt-2"><label className="text-xs text-amber-400 font-bold block mb-2">* חובה לצלם תמונה מהשטח לפני אישור:</label><label className={`w-full py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed ${statusPhotoFile ? 'bg-blue-600/20 text-blue-400 border-blue-500' : 'bg-slate-800 hover:bg-slate-700 text-white border-white/30'}`}>{isUploading ? <span className="loader"></span> : (statusPhotoFile ? "תמונה נבחרה מוכנה לשליחה ✓" : "📷 לחץ לפתיחת מצלמה")}<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setStatusPhotoFile(e.target.files[0])} disabled={isUploading} /></label><p className="text-[10px] text-center text-slate-500 mt-2">📍 המיקום הנוכחי שלך והתמונה יישמרו בתיקיית הסטטוס.</p></div>
+                                    <div className="pt-2"><label className="text-xs text-amber-400 font-bold block mb-2">* חובה להעלות תיעוד מהשטח לפני אישור:</label><label className={`w-full py-4 rounded-xl font-black text-sm active:scale-95 transition cursor-pointer flex items-center justify-center gap-2 border border-dashed ${statusPhotoFiles && statusPhotoFiles.length > 0 ? 'bg-blue-600/20 text-blue-400 border-blue-500' : 'bg-slate-800 hover:bg-slate-700 text-white border-white/30'}`}>{isUploading ? <span className="loader"></span> : ((statusPhotoFiles && statusPhotoFiles.length > 0) ? `${statusPhotoFiles.length} קבצים נבחרו ✓` : "📷 לחץ לבחירת תמונות / צילום וידאו")}<input type="file" accept="image/*,video/*" multiple capture="environment" className="hidden" onChange={(e) => setStatusPhotoFiles(e.target.files)} disabled={isUploading} /></label><p className="text-[10px] text-center text-slate-500 mt-2">📍 המיקום הנוכחי שלך והתמונה יישמרו בתיקיית הסטטוס.</p></div>
                                 </div>
-                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0"><button type="submit" disabled={isUploading} className={`flex-1 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition flex justify-center items-center gap-2 ${isUploading ? 'bg-slate-600' : 'theme-bg'}`}>{isUploading ? 'מעלה...' : 'חתום ואשר ✓'}</button><button type="button" onClick={() => {setSignRequirement(null); setStatusModal(null); setStatusPhotoFile(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button></div>
+                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0"><button type="submit" disabled={isUploading} className={`flex-1 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition flex justify-center items-center gap-2 ${isUploading ? 'bg-slate-600' : 'theme-bg'}`}>{isUploading ? 'מעדכן נתונים...' : 'חתום ואשר ✓'}</button><button type="button" onClick={() => {setSignRequirement(null); setStatusModal(null); setStatusPhotoFiles(null);}} className="px-6 text-slate-400 font-bold active:bg-white/5 rounded-xl">ביטול</button></div>
                             </form>
                         </div>
                     )}
@@ -1352,17 +1464,44 @@
                         </div>
                     )}
 
+                    {/* חלון דרישת סיסמה לניהול משתמשים */}
+                    {authUsersModal && (
+                        <div className="fixed inset-0 bg-slate-900/95 flex flex-col justify-center items-center z-[100] animate-fade-in p-4">
+                            <form onSubmit={e => {
+                                e.preventDefault();
+                                if(usersPasswordInput === usersTabPassword) {
+                                    setIsUsersUnlocked(true);
+                                    setActiveTab("users");
+                                    setAuthUsersModal(false);
+                                    setUsersPasswordInput("");
+                                } else {
+                                    alert("סיסמה שגויה. נסה שוב.");
+                                    setUsersPasswordInput("");
+                                }
+                            }} className="bg-[#1e293b] w-full max-w-sm rounded-[2rem] p-8 shadow-2xl border-t-[6px] border-purple-500">
+                                <h2 className="text-white text-2xl font-black mb-4 text-center flex items-center justify-center gap-2"><span>🔐</span> <span>אזור מאובטח</span></h2>
+                                <p className="text-slate-400 text-sm mb-6 text-center">הזן את סיסמת מנהל המערכת כדי לגשת לניהול המשתמשים.</p>
+                                <input type="password" value={usersPasswordInput} onChange={e=>setUsersPasswordInput(e.target.value)} placeholder="••••••••" className="w-full p-4 bg-slate-900 text-white rounded-xl mb-4 text-center font-black tracking-widest outline-none border border-transparent focus:border-purple-500 text-2xl" required autoFocus />
+                                <button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition shadow-lg mb-4">היכנס למערכת המשתמשים</button>
+                                <button type="button" onClick={() => setAuthUsersModal(false)} className="w-full text-slate-500 font-bold py-2 mb-6 hover:text-white transition">ביטול וחזרה</button>
+                                <div className="text-center pt-4 border-t border-white/10">
+                                    <a href={`mailto:${officeEmail}?subject=בקשה לאיפוס סיסמת משתמשים במערכת&body=שלום, אבקש לאפס את סיסמת מנהל המשתמשים באפליקציה.`} className="text-xs text-purple-400 hover:text-purple-300 font-bold" title="שולח בקשה למייל שהוגדר בהגדרות המערכת">שכחת סיסמה? בקש איפוס במייל</a>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
                     {/* משתמש חדש */}
                     {showAddUser && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
-                            <form onSubmit={e => { e.preventDefault(); db.collection("users").add({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, tz: e.target.tz.value, phone: e.target.phone.value, role: newUserRole }); setShowAddUser(false); }} className="bg-[#1e293b] w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl" style={{ borderTop: `6px solid ${appColor}` }}>
+                            <form onSubmit={e => { e.preventDefault(); db.collection("users").add({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, tz: e.target.tz.value, phone: e.target.phone.value, role: newUserRole }); setShowAddUser(false); }} className="bg-[#1e293b] w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-purple-500">
                                 <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-4 md:hidden"></div><h2 className="text-white text-2xl font-black mb-5">משתמש חדש</h2>
                                 <div className="space-y-4">
-                                    <input name="n" placeholder="שם העובד (יוצג באפליקציה)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold" required />
-                                    <div className="flex gap-2"><input name="u" placeholder="שם משתמש" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required /><input name="p" type="tel" placeholder="סיסמה" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right" required /></div>
-                                    <input name="tz" type="tel" maxLength="9" placeholder="תעודת זהות (חובה לצורך חתימות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest" required />
-                                    <input name="phone" type="tel" placeholder="מספר טלפון (חובה)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest border border-transparent focus:border-blue-500" required />
-                                    <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold">
+                                    <input name="n" placeholder="שם העובד (יוצג באפליקציה)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold focus:border-purple-500 border border-transparent" required />
+                                    <div className="flex gap-2"><input name="u" placeholder="שם משתמש" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right focus:border-purple-500 border border-transparent" required /><input name="p" type="tel" placeholder="סיסמה" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right focus:border-purple-500 border border-transparent" required /></div>
+                                    <input name="tz" type="tel" maxLength="9" placeholder="תעודת זהות (חובה לצורך חתימות)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest focus:border-purple-500 border border-transparent" required />
+                                    <input name="phone" type="tel" placeholder="מספר טלפון (חובה)" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none dir-ltr text-right font-black tracking-widest focus:border-purple-500 border border-transparent" required />
+                                    <select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold focus:border-purple-500 border border-transparent">
                                         <option value="worker">צוות שטח (ביצוע בשטח)</option>
                                         <option value="driver">נהג חלוקה</option>
                                         <option value="warehouse">מנהל מחסן</option>
@@ -1370,7 +1509,7 @@
                                         <option value="admin">מנהל מערכת (הכל)</option>
                                     </select>
                                 </div>
-                                <div className="flex flex-col gap-3 mt-6"><button type="submit" className="w-full theme-bg text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">צור משתמש</button><button type="button" onClick={()=>setShowAddUser(false)} className="w-full text-slate-400 font-bold py-2">ביטול</button></div>
+                                <div className="flex flex-col gap-3 mt-6"><button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">צור משתמש</button><button type="button" onClick={()=>setShowAddUser(false)} className="w-full text-slate-400 font-bold py-2">ביטול</button></div>
                             </form>
                         </div>
                     )}
@@ -1378,7 +1517,7 @@
                     {/* עריכת משתמש */}
                     {editUserModal && (
                         <div className="fixed inset-0 bg-slate-900/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
-                            <form onSubmit={e => { e.preventDefault(); db.collection("users").doc(editUserModal.id).update({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, tz: e.target.tz.value, phone: e.target.phone.value, role: editUserModal.role }); setEditUserModal(null); }} className="bg-[#1e293b] w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl" style={{ borderTop: `6px solid ${appColor}` }}>
+                            <form onSubmit={e => { e.preventDefault(); db.collection("users").doc(editUserModal.id).update({ name: e.target.n.value, username: e.target.u.value, password: e.target.p.value, tz: e.target.tz.value, phone: e.target.phone.value, role: editUserModal.role }); setEditUserModal(null); }} className="bg-[#1e293b] w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-purple-500">
                                 <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-4 md:hidden"></div><h2 className="text-white text-2xl font-black mb-5">עריכת עובד</h2>
                                 <div className="space-y-4">
                                     <input name="n" defaultValue={editUserModal.name} placeholder="שם העובד" className="w-full p-4 bg-slate-900 text-white rounded-xl outline-none font-bold" required />
@@ -1393,7 +1532,7 @@
                                         <option value="admin">מנהל מערכת (גישה מלאה להכל)</option>
                                     </select>
                                 </div>
-                                <div className="flex flex-col mt-6 gap-3"><button type="submit" className="w-full theme-bg text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">שמור</button><button type="button" onClick={()=>setEditUserModal(null)} className="w-full text-slate-400 font-bold py-2">ביטול</button></div>
+                                <div className="flex flex-col mt-6 gap-3"><button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-black text-lg active:scale-95 transition">שמור</button><button type="button" onClick={()=>setEditUserModal(null)} className="w-full text-slate-400 font-bold py-2">ביטול</button></div>
                             </form>
                         </div>
                     )}
