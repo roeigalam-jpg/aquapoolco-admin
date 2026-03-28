@@ -366,14 +366,14 @@
                     try {
                         let fileUrl = ""; let fileType = "";
                         
-                        // טיפול בוידאו - העלאה ישירה
+                        // טיפול בוידאו - העלאה ישירה בלי דחיסה
                         if (file.type.startsWith('video/')) {
                             const ref = storage.ref(`videos/${Date.now()}_${file.name}`);
                             await ref.put(file); 
                             fileUrl = await ref.getDownloadURL(); 
                             fileType = 'video';
                         } 
-                        // טיפול בתמונה - כיווץ
+                        // טיפול בתמונה - עוקף בעיות טעינה ודוחס כדי לחסוך מקום
                         else if (file.type.startsWith('image/') || file.name.match(/\.(jpg|jpeg|png|webp)$/i) || file.type === '') {
                             const dataUrl = await new Promise((resolve, reject) => {
                                 const reader = new FileReader();
@@ -924,98 +924,533 @@
                                 </div>
                             </div>
                         )}
-                    </main>
-
-                    {stageHistoryModal && (
-                        <div className="fixed inset-0 bg-black/90 flex flex-col justify-end md:justify-center items-center z-[70] animate-fade-in md:p-4">
-                            <div className="glass w-full h-[90vh] md:h-auto md:max-w-lg md:max-h-[90vh] mx-auto rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px]" style={{ borderColor: appColor }}>
-                                <div className="flex justify-between items-start mb-2 shrink-0">
-                                    <div>
-                                        <h2 className="text-white text-2xl font-black leading-tight">{stageHistoryModal.stageLabel}</h2>
-                                        <h3 className="text-blue-300 font-bold mt-1 text-sm">{stageHistoryModal.proj.name}</h3>
-                                    </div>
-                                    <button onClick={() => setStageHistoryModal(null)} className="w-10 h-10 bg-black/40 rounded-full text-white font-bold text-xl flex items-center justify-center hover:bg-white/10 transition shrink-0">X</button>
-                                </div>
-                                <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
-                                    {(!stageHistoryModal.proj.statusHistory || stageHistoryModal.proj.statusHistory.filter(h => h.stageId === stageHistoryModal.stageId).length === 0) ? (
-                                        <div className="text-center text-slate-500 py-10 font-bold bg-black/20 rounded-xl">אין היסטוריה.</div>
-                                    ) : (
-                                        [...stageHistoryModal.proj.statusHistory].filter(h => h.stageId === stageHistoryModal.stageId).reverse().map((hist, i) => (
-                                            <div key={i} className="bg-black/40 p-4 rounded-xl border border-white/5 shadow-md">
-                                                <div className="flex justify-between items-start mb-3">
-                                                    <span className={`text-xs font-black px-2 py-1 rounded-md ${hist.code === 3 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'}`}>{statusLabels[hist.code]}</span>
-                                                    <span className="text-[10px] text-slate-400 font-mono">{new Date(hist.date).toLocaleString('he-IL')}</span>
-                                                </div>
-                                                <p className="text-white font-bold text-sm mb-3 whitespace-pre-wrap">{hist.remark}</p>
-                                                {hist.files && hist.files.length > 0 && (
-                                                    <div className="flex gap-2 overflow-x-auto pb-2">
-                                                        {hist.files.map((f, j) => (
-                                                            f.type === 'video' ?
-                                                            <video key={j} src={f.url} controls className="h-24 w-auto object-cover rounded-lg shrink-0 bg-black" /> :
-                                                            <img key={j} src={f.url} onClick={()=>downloadImage(f.url, `תיעוד`)} className="h-24 w-auto object-cover rounded-lg shrink-0 cursor-pointer border border-white/10 transition" />
-                                                        ))}
-                                                    </div>
-                                                )}
-                                                <div className="text-[10px] text-slate-500 font-bold mt-2 border-t border-white/5 pt-2">👤 דווח ע"י: {hist.user}</div>
+                        
+                        {activeTab === "attendance" && currentUser.role === 'admin' && (
+                            <div className="max-w-4xl mx-auto glass p-6 md:p-8 border-t-4 border-rose-500 animate-fade-in" style={{ borderRadius: appRadius }}>
+                                <h2 className="text-2xl md:text-3xl font-black text-white mb-6">📍 נוכחות ומיקומים</h2>
+                                <div className="space-y-4">
+                                    {filteredAttendance.map(log => (
+                                        <div key={log.id} className="bg-black/40 p-4 border border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-lg" style={{ borderRadius: appRadius }}>
+                                            <div>
+                                                <div className="font-black text-white text-lg mb-1">{log.userName}</div>
+                                                <div className="text-sm text-slate-300 font-bold bg-black/40 p-2 rounded-lg inline-block border border-white/5">{log.action}</div>
+                                                <div className="text-xs text-rose-400 mt-2 font-mono">{new Date(log.timestamp).toLocaleString('he-IL')}</div>
                                             </div>
-                                        ))
-                                    )}
-                                </div>
-                                <div className="flex flex-col md:flex-row gap-3 pt-4 border-t border-white/10 shrink-0">
-                                    <button onClick={() => {
-                                        setStatusModal({
-                                            projId: stageHistoryModal.proj.id, stageId: stageHistoryModal.stageId, projName: stageHistoryModal.proj.name, stageLabel: stageHistoryModal.stageLabel, currentCode: stageHistoryModal.code
-                                        });
-                                        setStageHistoryModal(null);
-                                    }} className="flex-1 theme-bg text-white py-4 rounded-xl font-black text-lg flex justify-center items-center gap-2"><span>✏️</span> עדכן סטטוס</button>
+                                            {log.lat && log.lng && (
+                                                <a href={`https://www.google.com/maps?q=${log.lat},${log.lng}`} target="_blank" className="bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2 border border-rose-500/30">
+                                                    🗺️ צפה במפה
+                                                </a>
+                                            )}
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {signRequirement && (
-                        <div className="fixed inset-0 bg-black/95 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
-                            <form onSubmit={confirmSignatureAndStatus} className="glass w-full h-[90vh] md:h-auto md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px]" style={{ borderColor: appColor }}>
-                                <h2 className="text-white text-center text-2xl font-black mb-1 shrink-0">אישור ועדכון</h2>
-                                <p className="text-center text-slate-400 text-sm mb-4 shrink-0 font-bold">שלב: <span className="text-white">{signRequirement.stageLabel}</span> ➡️ <span className="text-white bg-white/20 px-2 py-0.5 rounded-lg border border-white/10">{signRequirement.newStatus}</span></p>
-                                <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-                                    <div><label className="text-xs text-blue-300 font-bold block mb-2">* הערת חובה:</label><textarea name="remark" rows="2" placeholder="מה בוצע?" className="w-full p-3 bg-black/50 text-white rounded-xl outline-none border border-blue-500/30 focus:border-blue-500 font-bold text-sm" required></textarea></div>
-                                    <div className="pt-2">
-                                        <label className="text-xs text-amber-400 font-bold block mb-2">* חובה להוסיף תיעוד מצולם:</label>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <label className="bg-blue-600 text-white py-3 rounded-xl font-black text-[10px] cursor-pointer flex items-center justify-center">
-                                                📸 מצלמה
-                                                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleAddFiles(e, statusPhotoFiles, setStatusPhotoFiles)} disabled={isUploading} />
-                                            </label>
-                                            <label className="bg-purple-600 text-white py-3 rounded-xl font-black text-[10px] cursor-pointer flex items-center justify-center">
-                                                🎥 וידאו
-                                                <input type="file" accept="video/*" capture="environment" className="hidden" onChange={(e) => handleAddFiles(e, statusPhotoFiles, setStatusPhotoFiles)} disabled={isUploading} />
-                                            </label>
-                                            <label className="bg-slate-700 text-white py-3 rounded-xl font-black text-[10px] cursor-pointer flex items-center justify-center">
-                                                📁 גלריה
-                                                <input type="file" accept="image/jpeg,image/png,video/mp4" multiple className="hidden" onChange={(e) => handleAddFiles(e, statusPhotoFiles, setStatusPhotoFiles)} disabled={isUploading} />
-                                            </label>
+                        {activeTab === "archive" && (currentUser.role === 'admin' || currentUser.role === 'accounting') && (
+                            <div className="max-w-[1600px] mx-auto glass p-6 md:p-8 border-t-4 border-slate-500 animate-fade-in" style={{ borderRadius: appRadius }}>
+                                <h2 className="text-2xl md:text-3xl font-black text-white mb-6">📁 ארכיון פרויקטים</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                    {finishedProjectsList.length === 0 && <div className="col-span-full text-center py-10 text-slate-500 font-bold bg-black/20 rounded-2xl">אין פרויקטים בארכיון.</div>}
+                                    {finishedProjectsList.map(proj => (
+                                        <div key={proj.id} className="bg-black/40 p-5 border border-white/5 shadow-xl relative overflow-hidden" style={{ borderRadius: appRadius }}>
+                                            <div className="flex justify-between items-start mb-2"><h3 className="font-black text-white text-xl leading-tight">{proj.name}</h3><span className="bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-0.5 rounded-full font-black border border-emerald-500/30">בוצע</span></div>
+                                            <p className="text-sm text-slate-400 mb-4">📍 {proj.address}</p>
+                                            <div className="flex gap-2 pt-4 border-t border-white/5">
+                                                <button onClick={() => setPhotosModal(proj)} className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white flex-1 py-2 rounded-xl text-sm font-bold transition border border-blue-500/30">📷 גלריה</button>
+                                                <button onClick={() => exportPDF(proj)} className="bg-slate-600/20 text-slate-300 hover:bg-slate-600 hover:text-white flex-1 py-2 rounded-xl text-sm font-bold transition border border-slate-500/30">📄 דוח PDF</button>
+                                                {currentUser.role === 'admin' && <button onClick={() => { if(window.confirm('להחזיר לפעילים?')) db.collection("projects").doc(proj.id).update({ isFinished: false }); }} className="bg-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white px-3 py-2 rounded-xl text-sm font-bold transition border border-amber-500/30">⤴️ שחזר</button>}
+                                            </div>
                                         </div>
-                                        {statusPhotoFiles && statusPhotoFiles.length > 0 && <div className="mt-2 text-center text-emerald-400 font-bold text-sm">{statusPhotoFiles.length} קבצים נבחרו ✓</div>}
-                                    </div>
-                                    <div className="flex-1 flex flex-col min-h-[150px]"><div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-400 font-bold">חתימה (חובה):</label><button type="button" onClick={() => sigPad.current.clear()} className="bg-black/50 text-white px-3 py-1 rounded-lg text-xs font-bold border border-white/10">נקה</button></div><div className="flex-1 w-full bg-white rounded-2xl border-4 border-blue-500/50 overflow-hidden touch-none relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" /></div></div>
+                                    ))}
                                 </div>
-                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0"><button type="submit" disabled={isUploading} className={`flex-1 text-white py-4 rounded-xl font-black text-lg ${isUploading ? 'bg-slate-600' : 'theme-bg'}`}>{isUploading ? 'מעלה...' : 'חתום ואשר ✓'}</button><button type="button" onClick={() => {setSignRequirement(null); setStatusModal(null); setStatusPhotoFiles(null);}} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </div>
+                        )}
+
+                        {activeTab === "settings" && currentUser.role === 'admin' && (
+                            <div className="max-w-3xl mx-auto glass p-6 md:p-8 border-t-4 border-blue-500 animate-fade-in" style={{ borderRadius: appRadius }}>
+                                <h2 className="text-2xl md:text-3xl font-black text-white mb-6 flex items-center gap-2">⚙️ הגדרות מערכת</h2>
+                                
+                                <div className="space-y-8">
+                                    <div className="bg-black/40 p-6 rounded-2xl border border-white/5">
+                                        <h3 className="text-xl font-black text-blue-300 mb-4">פרטי עסק</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div><label className="text-xs text-slate-400 font-bold block mb-1">שם המערכת</label><input type="text" value={portalName} onChange={(e) => {setPortalName(e.target.value); db.collection('settings').doc('general').set({portalName: e.target.value}, {merge:true})}} className="w-full p-3 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold" /></div>
+                                            <div><label className="text-xs text-slate-400 font-bold block mb-1">אימייל משרד (לדוחות)</label><input type="email" value={officeEmail} onChange={(e) => {setOfficeEmail(e.target.value); db.collection('settings').doc('general').set({officeEmail: e.target.value}, {merge:true})}} className="w-full p-3 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold dir-ltr text-right" /></div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-black/40 p-6 rounded-2xl border border-white/5">
+                                        <h3 className="text-xl font-black text-purple-300 mb-4">עיצוב ומיתוג</h3>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                            <div><label className="text-xs text-slate-400 font-bold block mb-1">צבע ראשי</label><input type="color" value={appColor} onChange={(e) => {setAppColor(e.target.value); db.collection('settings').doc('general').set({appColor: e.target.value}, {merge:true})}} className="w-full h-12 bg-black/50 rounded-xl cursor-pointer border border-white/10 p-1" /></div>
+                                            <div><label className="text-xs text-slate-400 font-bold block mb-1">רקע כללי</label><input type="color" value={appBgColor} onChange={(e) => {setAppBgColor(e.target.value); db.collection('settings').doc('general').set({appBgColor: e.target.value}, {merge:true})}} className="w-full h-12 bg-black/50 rounded-xl cursor-pointer border border-white/10 p-1" /></div>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div>
+                                                <label className="text-xs text-slate-400 font-bold block mb-1">גופן</label>
+                                                <select value={appFont} onChange={(e) => {setAppFont(e.target.value); db.collection('settings').doc('general').set({appFont: e.target.value}, {merge:true})}} className="w-full p-3 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold">
+                                                    <option value="system-ui">ברירת מחדל (מערכת)</option>
+                                                    <option value="Rubik">Rubik</option>
+                                                    <option value="Heebo">Heebo</option>
+                                                    <option value="Assistant">Assistant</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-slate-400 font-bold block mb-1">סגנון פינות</label>
+                                                <select value={appRadius} onChange={(e) => {setAppRadius(e.target.value); db.collection('settings').doc('general').set({appRadius: e.target.value}, {merge:true})}} className="w-full p-3 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold">
+                                                    <option value="0.5rem">מעוגל קל</option>
+                                                    <option value="1rem">מעוגל רגיל</option>
+                                                    <option value="1.5rem">מעוגל מאוד</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-slate-400 font-bold block mb-1">שקיפות חלוניות</label>
+                                                <select value={appCardBg} onChange={(e) => {setAppCardBg(e.target.value); db.collection('settings').doc('general').set({appCardBg: e.target.value}, {merge:true})}} className="w-full p-3 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold dir-ltr text-right">
+                                                    <option value="rgba(30, 41, 59, 0.95)">אטום (95%)</option>
+                                                    <option value="rgba(30, 41, 59, 0.8)">רגיל (80%)</option>
+                                                    <option value="rgba(30, 41, 59, 0.6)">שקוף (60%)</option>
+                                                    <option value="rgba(0, 0, 0, 0.5)">שחור שקוף (50%)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-black/40 p-6 rounded-2xl border border-white/5">
+                                        <h3 className="text-xl font-black text-emerald-300 mb-4">שלבי עבודה דינמיים</h3>
+                                        <div className="space-y-2 mb-4">
+                                            {stages.map((stage, index) => (
+                                                <div key={stage.id} className="flex gap-2 items-center bg-black/50 p-2 rounded-xl border border-white/5">
+                                                    <div className="flex flex-col gap-1 px-2">
+                                                        <button onClick={() => moveStage(index, 'up')} disabled={index===0} className="text-slate-400 hover:text-white disabled:opacity-20">▲</button>
+                                                        <button onClick={() => moveStage(index, 'down')} disabled={index===stages.length-1} className="text-slate-400 hover:text-white disabled:opacity-20">▼</button>
+                                                    </div>
+                                                    <input type="text" value={stage.label} onChange={(e) => { const newS = [...stages]; newS[index].label = e.target.value; setStages(newS); db.collection('settings').doc('general').set({stages: newS}, {merge:true}); }} className="flex-1 p-3 bg-transparent text-white outline-none font-bold" />
+                                                    <button onClick={() => { if(window.confirm('למחוק שלב?')) { const newS = stages.filter(s => s.id !== stage.id); setStages(newS); db.collection('settings').doc('general').set({stages: newS}, {merge:true}); } }} className="bg-red-900/50 text-red-400 p-3 rounded-lg font-bold">🗑️</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <button onClick={() => { const newS = [...stages, { id: 's'+Date.now(), label: 'שלב חדש' }]; setStages(newS); db.collection('settings').doc('general').set({stages: newS}, {merge:true}); }} className="w-full py-3 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-xl font-bold">+ הוסף שלב</button>
+                                    </div>
+
+                                    <div className="bg-black/40 p-6 rounded-2xl border border-white/5">
+                                        <h3 className="text-xl font-black text-amber-300 mb-4">אבטחת לשונית צוות</h3>
+                                        <div><label className="text-xs text-slate-400 font-bold block mb-1">סיסמה לניהול משתמשים וצפייה בשכר</label><input type="text" value={usersTabPassword} onChange={(e) => {setUsersTabPassword(e.target.value); db.collection('settings').doc('general').set({usersTabPassword: e.target.value}, {merge:true})}} className="w-full p-3 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-amber-500 font-bold dir-ltr text-right" /></div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {authUsersModal && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-[80] animate-fade-in p-4">
+                            <form onSubmit={(e) => { e.preventDefault(); if(usersPasswordInput === usersTabPassword) { setIsUsersUnlocked(true); setAuthUsersModal(false); setActiveTab('users'); setUsersPasswordInput(""); } else { alert("סיסמה שגויה"); } }} className="glass w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center border-t-[6px] border-purple-500 relative">
+                                <button type="button" onClick={() => { setAuthUsersModal(false); setUsersPasswordInput(""); }} className="absolute top-4 left-4 text-slate-400 hover:text-white font-bold text-xl">X</button>
+                                <div className="text-5xl mb-4">🔒</div>
+                                <h2 className="text-2xl font-black text-white mb-2">אזור מאובטח</h2>
+                                <p className="text-sm text-slate-400 mb-6 font-bold">הזן סיסמת מנהל כדי לגשת לניהול הצוות</p>
+                                <input type="password" autoFocus required placeholder="סיסמה" value={usersPasswordInput} onChange={e=>setUsersPasswordInput(e.target.value)} className="w-full p-4 bg-black/50 text-center text-white rounded-xl outline-none border border-purple-500/30 focus:border-purple-500 font-bold text-xl mb-6 dir-ltr tracking-widest" />
+                                <button type="submit" className="w-full bg-purple-600 text-white py-4 rounded-xl font-black text-lg shadow-lg">כניסה</button>
                             </form>
                         </div>
                     )}
 
-                    {statusModal && !signRequirement && (
-                        <div className="fixed inset-0 bg-black/80 flex flex-col justify-end md:justify-center items-center z-[60] animate-fade-in md:p-4" onClick={() => setStatusModal(null)}>
-                            <div className="glass w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl border-t-[6px]" style={{ borderColor: appColor }} onClick={e=>e.stopPropagation()}>
-                                <h2 className="text-center text-2xl font-black text-white mb-6 border-b border-white/10 pb-4">{statusModal.stageLabel}</h2>
-                                <div className="space-y-3">
-                                    {[ {code: 0, label: statusLabels[0], color: "status-0"}, {code: 1, label: statusLabels[1], color: "status-1"}, {code: 2, label: statusLabels[2], color: "status-2"}, {code: 3, label: statusLabels[3], color: "status-3"} ].map(opt => (
-                                        <button key={opt.code} onClick={() => { if (opt.code !== statusModal.currentCode) setSignRequirement({ projId: statusModal.projId, stageId: statusModal.stageId, code: opt.code, stageLabel: statusModal.stageLabel, projName: statusModal.projName, newStatus: opt.label }); else setStatusModal(null); }} className={`w-full py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 ${opt.color} ${statusModal.currentCode===opt.code?'ring-4 ring-white/30 opacity-60':''}`}>{opt.label}</button>
+                    {showAddProject && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-50 animate-fade-in p-4">
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const fd = new FormData(e.target);
+                                db.collection("projects").add({ name: fd.get('name'), address: fd.get('address'), clientPhone: fd.get('phone'), budget: Number(fd.get('budget')||0), payAdvance: 0, payStageA: 0, payStageB: 0, payFinal: 0, statuses: {}, signatures: {}, hasPhotos: {}, customTasks: [], allocatedMaterials: [], statusHistory: [], assignedUsers: [], createdAt: firebase.firestore.FieldValue.serverTimestamp(), isFinished: false });
+                                setShowAddProject(false);
+                            }} className="glass w-full max-w-md rounded-[2rem] p-6 shadow-2xl border-t-[6px]" style={{ borderColor: appColor }}>
+                                <h2 className="text-2xl font-black text-white mb-6 text-center">פרויקט חדש</h2>
+                                <div className="space-y-4">
+                                    <input name="name" placeholder="שם הפרויקט (לקוח)" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold" />
+                                    <input name="address" placeholder="כתובת מדויקת לניווט" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold" />
+                                    <input name="phone" placeholder="טלפון לקוח" type="tel" className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold dir-ltr text-right" />
+                                    <input name="budget" placeholder="תקציב התחלתי (₪)" type="number" className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold" />
+                                </div>
+                                <div className="flex gap-3 mt-8"><button type="submit" className="flex-1 theme-bg text-white py-4 rounded-xl font-black text-lg">צור פרויקט ✓</button><button type="button" onClick={() => setShowAddProject(false)} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {editProjectModal && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-50 animate-fade-in p-4">
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const fd = new FormData(e.target);
+                                db.collection("projects").doc(editProjectModal.id).update({ name: fd.get('name'), address: fd.get('address'), clientPhone: fd.get('phone') });
+                                setEditProjectModal(null);
+                            }} className="glass w-full max-w-md rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-blue-500">
+                                <h2 className="text-2xl font-black text-white mb-6 text-center">עריכת פרויקט</h2>
+                                <div className="space-y-4">
+                                    <input name="name" defaultValue={editProjectModal.name} placeholder="שם הפרויקט" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold" />
+                                    <input name="address" defaultValue={editProjectModal.address} placeholder="כתובת" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold" />
+                                    <input name="phone" defaultValue={editProjectModal.clientPhone} placeholder="טלפון לקוח" type="tel" className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold dir-ltr text-right" />
+                                </div>
+                                <div className="flex gap-3 mt-8"><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black text-lg">שמור שינויים ✓</button><button type="button" onClick={() => setEditProjectModal(null)} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {showAddUser && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-50 animate-fade-in p-4">
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const fd = new FormData(e.target);
+                                db.collection("users").add({ name: fd.get('name'), username: fd.get('username'), password: fd.get('password'), tz: fd.get('tz'), phone: fd.get('phone'), role: newUserRole, score: 0 });
+                                setShowAddUser(false);
+                            }} className="glass w-full max-w-md rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-purple-500">
+                                <h2 className="text-2xl font-black text-white mb-6 text-center">משתמש חדש</h2>
+                                <div className="space-y-4">
+                                    <input name="name" placeholder="שם מלא" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-purple-500 font-bold" />
+                                    <input name="username" placeholder="שם משתמש לאפליקציה (אנגלית)" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-purple-500 font-bold dir-ltr text-right" />
+                                    <input name="password" placeholder="סיסמה" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-purple-500 font-bold dir-ltr text-right" />
+                                    <input name="tz" placeholder="תעודת זהות (חובה לחתימות)" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-purple-500 font-bold dir-ltr text-right" />
+                                    <input name="phone" placeholder="מספר נייד" type="tel" className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-purple-500 font-bold dir-ltr text-right" />
+                                    <select value={newUserRole} onChange={e=>setNewUserRole(e.target.value)} className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-purple-500 font-bold">
+                                        {Object.entries(roleLabels).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex gap-3 mt-8"><button type="submit" className="flex-1 bg-purple-600 text-white py-4 rounded-xl font-black text-lg">צור משתמש ✓</button><button type="button" onClick={() => setShowAddUser(false)} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {editUserModal && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-50 animate-fade-in p-4">
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const fd = new FormData(e.target);
+                                db.collection("users").doc(editUserModal.id).update({ name: fd.get('name'), username: fd.get('username'), password: fd.get('password'), tz: fd.get('tz'), phone: fd.get('phone'), role: fd.get('role') });
+                                setEditUserModal(null);
+                            }} className="glass w-full max-w-md rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-blue-500">
+                                <h2 className="text-2xl font-black text-white mb-6 text-center">עריכת משתמש</h2>
+                                <div className="space-y-4">
+                                    <input name="name" defaultValue={editUserModal.name} placeholder="שם מלא" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold" />
+                                    <input name="username" defaultValue={editUserModal.username} placeholder="שם משתמש לאפליקציה (אנגלית)" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold dir-ltr text-right" />
+                                    <input name="password" defaultValue={editUserModal.password} placeholder="סיסמה" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold dir-ltr text-right" />
+                                    <input name="tz" defaultValue={editUserModal.tz} placeholder="תעודת זהות" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold dir-ltr text-right" />
+                                    <input name="phone" defaultValue={editUserModal.phone} placeholder="מספר נייד" type="tel" className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold dir-ltr text-right" />
+                                    <select name="role" defaultValue={editUserModal.role} className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-blue-500 font-bold">
+                                        {Object.entries(roleLabels).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex gap-3 mt-8"><button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black text-lg">שמור שינויים ✓</button><button type="button" onClick={() => setEditUserModal(null)} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {assignModal && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-[60] animate-fade-in p-4">
+                            <div className="glass w-full max-w-sm rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-blue-500">
+                                <h2 className="text-xl font-black text-white mb-2 text-center">שיבוץ צוות</h2>
+                                <h3 className="text-blue-300 text-center font-bold mb-6">{assignModal.name}</h3>
+                                <div className="max-h-60 overflow-y-auto space-y-2 mb-6">
+                                    {users.filter(u => u.role !== 'admin' && u.role !== 'accounting').map(u => (
+                                        <label key={u.id} className="flex items-center p-4 bg-black/40 rounded-xl cursor-pointer border border-white/5 hover:bg-white/5 transition">
+                                            <input type="checkbox" checked={assignModal.users.includes(u.id)} onChange={(e) => {
+                                                const newUsers = e.target.checked ? [...assignModal.users, u.id] : assignModal.users.filter(id => id !== u.id);
+                                                setAssignModal({...assignModal, users: newUsers});
+                                            }} className="w-5 h-5 ml-3 accent-blue-500" />
+                                            <span className="text-white font-bold">{u.name}</span>
+                                            <span className="text-xs text-slate-500 mr-auto font-bold">{roleLabels[u.role]}</span>
+                                        </label>
                                     ))}
                                 </div>
-                                <button onClick={()=>setStatusModal(null)} className="w-full mt-6 text-slate-400 font-bold py-3 bg-black/30 border border-white/5">ביטול</button>
+                                <div className="flex gap-3"><button onClick={() => { db.collection("projects").doc(assignModal.id).update({ assignedUsers: assignModal.users }); setAssignModal(null); }} className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black text-lg">שמור צוות ✓</button><button onClick={() => setAssignModal(null)} className="px-6 text-slate-400 font-bold">ביטול</button></div>
                             </div>
+                        </div>
+                    )}
+
+                    {showAddInventory && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-50 animate-fade-in p-4">
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const fd = new FormData(e.target);
+                                db.collection("inventory").add({ name: fd.get('name'), category: fd.get('category'), quantity: Number(fd.get('qty')||0), lastUpdated: new Date().toISOString() });
+                                setShowAddInventory(false);
+                            }} className="glass w-full max-w-md rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-amber-500">
+                                <h2 className="text-2xl font-black text-white mb-6 text-center">פריט מחסן חדש</h2>
+                                <div className="space-y-4">
+                                    <input name="name" placeholder="שם הפריט" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-amber-500 font-bold" />
+                                    <input name="category" placeholder="קטגוריה (למשל: צנרת, משאבות, כימיקלים)" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-amber-500 font-bold" />
+                                    <input name="qty" placeholder="כמות התחלתית במלאי" type="number" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-amber-500 font-bold" />
+                                </div>
+                                <div className="flex gap-3 mt-8"><button type="submit" className="flex-1 bg-amber-600 text-white py-4 rounded-xl font-black text-lg">צור פריט ✓</button><button type="button" onClick={() => setShowAddInventory(false)} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {leaderboardModal && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-[80] animate-fade-in p-4" onClick={() => setLeaderboardModal(false)}>
+                            <div className="glass w-full max-w-md rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-amber-500 relative" onClick={e=>e.stopPropagation()}>
+                                <button onClick={() => setLeaderboardModal(false)} className="absolute top-4 left-4 text-slate-400 hover:text-white font-bold text-xl">X</button>
+                                <h2 className="text-2xl font-black text-white mb-2 text-center flex items-center justify-center gap-2">🏆 טבלת אלופי השטח</h2>
+                                <p className="text-center text-amber-400 font-bold text-sm mb-6">צוברים נקודות על כל עדכון ומשימה!</p>
+                                <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
+                                    {[...users].filter(u => u.role === 'worker').sort((a,b)=>(b.score||0)-(a.score||0)).map((u, i) => (
+                                        <div key={u.id} className="bg-black/40 p-4 border border-white/5 flex justify-between items-center rounded-2xl">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${i===0?'bg-yellow-500 text-black':i===1?'bg-slate-300 text-black':i===2?'bg-amber-700 text-white':'bg-black/50 text-slate-400'}`}>{i+1}</div>
+                                                <div className="font-black text-white text-lg">{u.name}</div>
+                                            </div>
+                                            <div className="text-amber-400 font-black text-xl">{u.score||0} <span className="text-[10px] text-amber-400/50">נק'</span></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {callTeamModal && (
+                        <div className="fixed inset-0 bg-black/90 flex flex-col justify-end md:justify-center items-center z-[80] animate-fade-in md:p-4" onClick={() => setCallTeamModal(null)}>
+                            <div className="glass w-full md:max-w-sm rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl border-t-[6px] border-indigo-500" onClick={e=>e.stopPropagation()}>
+                                <h2 className="text-center text-xl font-black text-white mb-1">📞 חיוג לצוות</h2>
+                                <h3 className="text-center text-indigo-300 text-sm font-bold mb-6 pb-4 border-b border-white/10">{callTeamModal.projName}</h3>
+                                <div className="space-y-3">
+                                    {callTeamModal.team.map(u => (
+                                        <a key={u.id} href={`tel:${u.phone||''}`} className="w-full bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 border border-indigo-500/30 transition">👤 {u.name}</a>
+                                    ))}
+                                </div>
+                                <button onClick={()=>setCallTeamModal(null)} className="w-full mt-6 text-slate-400 font-bold py-3 bg-black/30 rounded-xl border border-white/5">ביטול</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {finishModal && (
+                        <div className="fixed inset-0 bg-black/90 flex justify-center items-center z-50 animate-fade-in p-4">
+                            <div className="glass w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center border-t-[6px] border-emerald-500 relative">
+                                <div className="text-5xl mb-4">✅</div>
+                                <h2 className="text-2xl font-black text-white mb-2">סיום פרויקט</h2>
+                                <h3 className="text-emerald-300 font-bold mb-6">{finishModal.name}</h3>
+                                <p className="text-sm text-slate-300 font-bold mb-8">האם אתה בטוח שברצונך לסיים את הפרויקט ולהעבירו לארכיון?</p>
+                                <div className="flex gap-3"><button onClick={() => { db.collection("projects").doc(finishModal.id).update({ isFinished: true, finishedAt: new Date().toISOString() }); setFinishModal(null); }} className="flex-1 bg-emerald-600 text-white py-4 rounded-xl font-black text-lg shadow-lg">כן, סיים פרויקט</button><button onClick={() => setFinishModal(null)} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {materialsModal && !materialSignData && (
+                        <div className="fixed inset-0 bg-black/90 flex flex-col justify-end md:justify-center items-center z-50 animate-fade-in md:p-4">
+                            <div className="glass w-full h-[90vh] md:h-auto md:max-w-lg md:max-h-[90vh] rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-amber-500">
+                                <div className="flex justify-between items-start mb-6 shrink-0 border-b border-white/10 pb-4">
+                                    <div><h2 className="text-2xl font-black text-white leading-tight">📦 דרישת ציוד וחומרים</h2><h3 className="text-amber-400 font-bold mt-1 text-sm">{materialsModal.name}</h3></div>
+                                    <button onClick={() => setMaterialsModal(null)} className="w-10 h-10 bg-black/40 rounded-full text-white font-bold text-xl flex items-center justify-center hover:bg-white/10 transition shrink-0">X</button>
+                                </div>
+                                <div className="flex gap-2 mb-6 shrink-0 bg-black/40 p-1 rounded-xl">
+                                    <button onClick={() => setMaterialReqType("stock")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${materialReqType === "stock" ? "bg-amber-600 text-white shadow-md" : "text-slate-400 hover:text-white"}`}>ממלאי קיים</button>
+                                    <button onClick={() => setMaterialReqType("special")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${materialReqType === "special" ? "bg-amber-600 text-white shadow-md" : "text-slate-400 hover:text-white"}`}>הזמנה מיוחדת</button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto mb-6 pr-2">
+                                    <form id="materialForm" onSubmit={handleMaterialSubmit} className="space-y-4">
+                                        {materialReqType === "stock" ? (
+                                            <div>
+                                                <label className="text-xs text-amber-400 font-bold block mb-2">בחר פריט מהמחסן:</label>
+                                                <select name="itemId" required className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-amber-500 font-bold text-lg appearance-none">
+                                                    <option value="">-- בחר פריט --</option>
+                                                    {inventory.map(i => <option key={i.id} value={i.id} disabled={i.quantity<=0}>{i.name} ({i.quantity} במלאי)</option>)}
+                                                </select>
+                                            </div>
+                                        ) : (
+                                            <div><label className="text-xs text-amber-400 font-bold block mb-2">פירוט ציוד חסר / מיוחד:</label><textarea name="specialText" rows="3" required placeholder="למשל: 2 משאבות מסוג X, 5 מטר צנרת Y..." className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-amber-500 font-bold"></textarea></div>
+                                        )}
+                                        <div><label className="text-xs text-amber-400 font-bold block mb-2">כמות נדרשת (יחידות):</label><input type="number" name="qty" required min="1" defaultValue="1" className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-amber-500 font-bold text-xl" /></div>
+                                    </form>
+                                    
+                                    <div className="mt-8 pt-6 border-t border-white/10">
+                                        <h4 className="text-sm font-black text-slate-300 mb-4">סטטוס ציוד לפרויקט זה:</h4>
+                                        <div className="space-y-2">
+                                            {(!materialsModal.allocatedMaterials || materialsModal.allocatedMaterials.length === 0) && <div className="text-center text-slate-500 font-bold py-4">אין דרישות רכש או ציוד שהוקצה.</div>}
+                                            {(materialsModal.allocatedMaterials || []).map((mat, i) => (
+                                                <div key={i} className="bg-black/40 p-3 rounded-xl border border-white/5 flex justify-between items-center shadow-sm">
+                                                    <div><div className="text-white font-bold text-sm">{mat.name} <span className="text-amber-400 px-1">x{mat.quantity}</span></div><div className="text-[10px] text-slate-400">דורש: {mat.requestedBy}</div></div>
+                                                    <span className={`text-[10px] font-black px-2 py-1 rounded-md ${mat.status==='pending'?'bg-red-500/20 text-red-400':mat.status==='en_route'?'bg-amber-500/20 text-amber-400':'bg-emerald-500/20 text-emerald-400'}`}>{mat.status==='pending'?'ממתין':mat.status==='en_route'?'בדרך':'סופק'}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="shrink-0"><button type="submit" form="materialForm" className="w-full bg-amber-600 text-white py-4 rounded-xl font-black text-lg shadow-lg">{(currentUser.role === 'admin' || currentUser.role === 'accounting') ? 'שייך לפרויקט ממלאי' : 'המשך לחתימה ✍️'}</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {materialSignData && (
+                        <div className="fixed inset-0 bg-black/95 flex flex-col justify-end md:justify-center items-center z-[60] animate-fade-in md:p-4">
+                            <div className="glass w-full h-[90vh] md:h-auto md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-amber-500">
+                                <h2 className="text-white text-center text-2xl font-black mb-1 shrink-0">חתימת צוות משיך</h2>
+                                <p className="text-center text-amber-400 text-sm mb-6 shrink-0 font-bold">אישור דרישת ציוד למחסן</p>
+                                <div className="bg-black/40 p-4 rounded-xl border border-white/5 mb-6 shrink-0 text-center"><div className="text-lg font-black text-white">{materialSignData.itemName}</div><div className="text-amber-400 font-black mt-1">כמות: {materialSignData.qty} יחידות</div></div>
+                                <div className="flex-1 flex flex-col min-h-[200px] mb-6">
+                                    <div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-400 font-bold">חתום כאן (חובה):</label><button type="button" onClick={() => sigPad.current.clear()} className="bg-black/50 text-white px-3 py-1 rounded-lg text-xs font-bold border border-white/10">נקה</button></div>
+                                    <div className="flex-1 w-full bg-white rounded-2xl border-4 border-amber-500/50 overflow-hidden touch-none relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" /></div>
+                                </div>
+                                <div className="flex gap-3 shrink-0"><button onClick={confirmMaterialSignature} className="flex-1 bg-amber-600 text-white py-4 rounded-xl font-black text-lg">אשר ושלח למחסן ✓</button><button onClick={() => setMaterialSignData(null)} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {photosModal && (
+                        <div className="fixed inset-0 bg-black/90 flex flex-col justify-end md:justify-center items-center z-[60] animate-fade-in md:p-4">
+                            <div className="glass w-full h-[95vh] md:h-[80vh] md:max-w-3xl rounded-t-[2rem] md:rounded-[2rem] p-4 md:p-6 shadow-2xl flex flex-col border-t-[6px] border-blue-500">
+                                <div className="flex justify-between items-start mb-4 shrink-0">
+                                    <div><h2 className="text-white text-2xl font-black leading-tight">📷 תיק פרויקט</h2><h3 className="text-blue-300 font-bold mt-1 text-sm">{photosModal.name}</h3></div>
+                                    <button onClick={() => setPhotosModal(null)} className="w-10 h-10 bg-black/40 rounded-full text-white font-bold text-xl flex items-center justify-center hover:bg-white/10 transition shrink-0">X</button>
+                                </div>
+                                
+                                <div className="flex overflow-x-auto gap-2 pb-2 mb-4 shrink-0 hide-scroll">
+                                    {projectFolders.map(f => {
+                                        const count = currentProjectPhotos.filter(p => p.folder === f).length;
+                                        return (
+                                            <button key={f} onClick={() => setActivePhotoFolder(f)} className={`whitespace-nowrap px-4 py-2 rounded-xl font-bold text-sm transition ${activePhotoFolder === f ? 'bg-blue-600 text-white shadow-lg' : 'bg-black/40 text-slate-400 border border-white/5'}`}>
+                                                {f} {count > 0 && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${activePhotoFolder === f ? 'bg-white text-blue-600' : 'bg-white/10 text-slate-300'}`}>{count}</span>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto bg-black/20 rounded-2xl p-4 border border-white/5 mb-4 relative">
+                                    {isUploading && <div className="absolute inset-0 bg-black/80 z-10 flex flex-col items-center justify-center rounded-2xl"><div className="loader mb-4"></div><div className="text-white font-bold text-sm bg-blue-600 px-4 py-2 rounded-xl">מעלה קבצים... נא לא לסגור</div></div>}
+                                    
+                                    {currentProjectPhotos.filter(p => p.folder === activePhotoFolder).length === 0 ? (
+                                        <div className="h-full flex items-center justify-center text-slate-500 font-bold text-center">אין תמונות בתיקייה זו.</div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                            {currentProjectPhotos.filter(p => p.folder === activePhotoFolder).map(photo => (
+                                                <div key={photo.id} className="relative group aspect-square bg-black rounded-xl overflow-hidden border border-white/10">
+                                                    {photo.type === 'video' ? (
+                                                        <video src={photo.url} controls className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <img src={photo.url} onClick={() => downloadImage(photo.url, `תמונה_${photosModal.name}`)} className="w-full h-full object-cover cursor-pointer hover:scale-105 transition duration-300" />
+                                                    )}
+                                                    <div className="absolute top-1 right-1 bg-black/80 px-2 py-0.5 rounded text-[8px] text-white font-mono border border-white/20">{new Date(photo.timestamp).toLocaleDateString('he-IL')}</div>
+                                                    <div className="absolute bottom-1 right-1 left-1 bg-black/80 px-1 py-0.5 rounded text-[8px] text-slate-300 font-bold truncate text-center border border-white/10">{photo.uploadedBy}</div>
+                                                    {currentUser.role === 'admin' && activePhotoFolder !== '🗑️ פח אשפה' && (
+                                                        <button onClick={(e) => { e.stopPropagation(); db.collection("project_photos").doc(photo.id).update({ folder: '🗑️ פח אשפה' }); }} className="absolute top-1 left-1 bg-red-600 text-white w-6 h-6 rounded-full text-xs opacity-0 group-hover:opacity-100 transition shadow-lg flex items-center justify-center">X</button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="shrink-0 flex gap-2">
+                                    <label className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 cursor-pointer shadow-lg hover:bg-blue-500 transition">
+                                        <span>📷</span> הוסף תמונות לתיקייה
+                                        <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleProjectPhotosUpload} disabled={isUploading || activePhotoFolder === '🗑️ פח אשפה'} />
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {inventoryItemModal && (
+                        <div className="fixed inset-0 bg-black/90 flex flex-col justify-end md:justify-center items-center z-[60] animate-fade-in md:p-4">
+                            <div className="glass w-full h-[95vh] md:h-[80vh] md:max-w-2xl rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-amber-500">
+                                <div className="flex justify-between items-start mb-6 shrink-0 border-b border-white/10 pb-4">
+                                    <div>
+                                        <h2 className="text-2xl font-black text-white leading-tight flex items-center gap-2">{inventoryItemModal.name}</h2>
+                                        <h3 className="text-amber-400 font-bold mt-1 text-sm bg-black/40 inline-block px-2 py-0.5 rounded">{inventoryItemModal.category}</h3>
+                                    </div>
+                                    <button onClick={() => setInventoryItemModal(null)} className="w-10 h-10 bg-black/40 rounded-full text-white font-bold text-xl flex items-center justify-center hover:bg-white/10 transition shrink-0">X</button>
+                                </div>
+
+                                <div className="flex gap-2 mb-4 shrink-0 bg-black/40 p-1 rounded-xl">
+                                    <button onClick={() => setInvModalTab("gallery")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${invModalTab === "gallery" ? "bg-amber-600 text-white shadow-md" : "text-slate-400 hover:text-white"}`}>תעודות סחורה</button>
+                                    <button onClick={() => setInvModalTab("receive")} className={`flex-1 py-3 rounded-lg font-black text-sm transition ${invModalTab === "receive" ? "bg-amber-600 text-white shadow-md" : "text-slate-400 hover:text-white"}`}>➕ קליטת סחורה חדשה</button>
+                                </div>
+
+                                {invModalTab === "gallery" ? (
+                                    <div className="flex-1 overflow-y-auto bg-black/20 rounded-2xl p-4 border border-white/5 relative">
+                                        {inventoryPhotos.length === 0 ? (
+                                            <div className="h-full flex items-center justify-center text-slate-500 font-bold text-center">אין תעודות מצולמות לפריט זה.</div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                {inventoryPhotos.map(photo => (
+                                                    <div key={photo.id} className="relative aspect-square bg-black rounded-xl overflow-hidden border border-white/10 flex flex-col">
+                                                        <img src={photo.url} onClick={() => downloadImage(photo.url, `תעודה_${inventoryItemModal.name}`)} className="flex-1 w-full object-cover cursor-pointer hover:scale-105 transition duration-300" />
+                                                        <div className="bg-black/90 p-2 text-center border-t border-white/10 shrink-0">
+                                                            <div className="text-amber-400 font-black text-xs">+{photo.qtyAdded} יחידות</div>
+                                                            <div className="text-[10px] text-slate-400 mt-1">{photo.signatureName}</div>
+                                                            <div className="text-[8px] text-slate-500 font-mono mt-0.5">{new Date(photo.timestamp).toLocaleDateString('he-IL')}</div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="flex-1 overflow-y-auto pr-1">
+                                        <form id="invReceiveForm" onSubmit={handleInventoryReceive} className="space-y-4 h-full flex flex-col">
+                                            <div><label className="text-xs text-amber-400 font-bold block mb-2">כמות נכנסת למלאי:</label><input type="number" name="qty" required min="1" className="w-full p-4 bg-black/50 text-white rounded-xl outline-none border border-white/10 focus:border-amber-500 font-bold text-2xl text-center" /></div>
+                                            <div>
+                                                <label className="text-xs text-amber-400 font-bold block mb-2">* חובה לצלם תעודת משלוח:</label>
+                                                <label className="bg-black/50 border border-dashed border-amber-500/50 text-amber-400 py-4 rounded-xl font-black text-sm cursor-pointer flex items-center justify-center gap-2 hover:bg-black/70 transition">
+                                                    📸 צלם תעודה
+                                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleAddFiles(e, invDeliveryFiles, setInvDeliveryFiles)} disabled={isUploading} />
+                                                </label>
+                                                {invDeliveryFiles && invDeliveryFiles.length > 0 && <div className="mt-2 text-center text-emerald-400 font-bold text-sm">✅ התעודה צולמה</div>}
+                                            </div>
+                                            <div className="flex-1 flex flex-col min-h-[150px] mt-2">
+                                                <div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-400 font-bold">חתימת מקבל (חובה):</label><button type="button" onClick={() => invSigPad.current.clear()} className="bg-black/50 text-white px-3 py-1 rounded-lg text-xs font-bold border border-white/10">נקה</button></div>
+                                                <div className="flex-1 w-full bg-white rounded-2xl border-4 border-amber-500/50 overflow-hidden touch-none relative"><canvas ref={invCanvasRef} className="absolute inset-0 w-full h-full touch-none" /></div>
+                                            </div>
+                                        </form>
+                                    </div>
+                                )}
+                                {invModalTab === "receive" && (
+                                    <div className="shrink-0 mt-4 pt-4 border-t border-white/10">
+                                        <button type="submit" form="invReceiveForm" disabled={isUploading} className={`w-full text-white py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 shadow-lg ${isUploading ? 'bg-slate-600' : 'bg-amber-600'}`}>
+                                            {isUploading ? <><div className="loader border-t-white border-l-transparent w-5 h-5 border-2"></div> מעלה תעודה...</> : 'אשר קליטה ✓'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {deliveryModal && (
+                        <div className="fixed inset-0 bg-black/95 flex flex-col justify-end md:justify-center items-center z-[70] animate-fade-in md:p-4">
+                            <form onSubmit={handleDeliveryConfirm} className="glass w-full h-[90vh] md:h-auto md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-cyan-500">
+                                <h2 className="text-white text-center text-2xl font-black mb-1 shrink-0">אישור מסירה</h2>
+                                <p className="text-center text-cyan-400 text-sm mb-6 shrink-0 font-bold">{deliveryModal.projName}</p>
+                                <div className="bg-black/40 p-4 rounded-xl border border-white/5 mb-6 shrink-0 text-center"><div className="text-lg font-black text-white">{deliveryModal.matName}</div><div className="text-cyan-400 font-black mt-1">כמות: {deliveryModal.qty} יחידות</div></div>
+                                <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                                    <div>
+                                        <label className="text-xs text-cyan-400 font-bold block mb-2">* תעד סחורה בשטח (חובה):</label>
+                                        <label className="bg-black/50 border border-dashed border-cyan-500/50 text-cyan-400 py-4 rounded-xl font-black text-sm cursor-pointer flex items-center justify-center gap-2 hover:bg-black/70 transition">
+                                            📸 צלם ציוד
+                                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleAddFiles(e, deliveryPhotoFiles, setDeliveryPhotoFiles)} disabled={isUploading} />
+                                        </label>
+                                        {deliveryPhotoFiles && deliveryPhotoFiles.length > 0 && <div className="mt-2 text-center text-emerald-400 font-bold text-sm">✅ צולם בהצלחה</div>}
+                                    </div>
+                                    <div className="flex-1 flex flex-col min-h-[150px]">
+                                        <div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-400 font-bold">חתימת מקבל / נהג (חובה):</label><button type="button" onClick={() => sigPad.current.clear()} className="bg-black/50 text-white px-3 py-1 rounded-lg text-xs font-bold border border-white/10">נקה</button></div>
+                                        <div className="flex-1 w-full bg-white rounded-2xl border-4 border-cyan-500/50 overflow-hidden touch-none relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" /></div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0"><button type="submit" disabled={isUploading} className={`flex-1 text-white py-4 rounded-xl font-black text-lg ${isUploading ? 'bg-slate-600' : 'bg-cyan-600'}`}>{isUploading ? 'מעלה...' : 'אשר מסירה ✓'}</button><button type="button" onClick={() => {setDeliveryModal(null); setDeliveryPhotoFiles(null);}} className="px-6 text-slate-400 font-bold">ביטול</button></div>
+                            </form>
+                        </div>
+                    )}
+
+                    {cancelDeliveryModal && (
+                        <div className="fixed inset-0 bg-black/95 flex flex-col justify-end md:justify-center items-center z-[70] animate-fade-in md:p-4">
+                            <form onSubmit={handleDeliveryCancel} className="glass w-full h-[90vh] md:h-auto md:max-w-md rounded-t-[2rem] md:rounded-[2rem] p-6 shadow-2xl flex flex-col border-t-[6px] border-red-500">
+                                <div className="text-center mb-4"><span className="bg-red-500 text-white w-12 h-12 rounded-full inline-flex items-center justify-center text-2xl font-black shadow-lg shadow-red-500/30">!</span></div>
+                                <h2 className="text-white text-center text-2xl font-black mb-1 shrink-0">ביטול והחזרה למלאי</h2>
+                                <p className="text-center text-red-400 text-sm mb-6 shrink-0 font-bold">ביטול חלוקת ציוד לפרויקט</p>
+                                <div className="bg-red-900/30 p-4 rounded-xl border border-red-500/30 mb-6 shrink-0 text-center"><div className="text-lg font-black text-white">{cancelDeliveryModal.matName}</div><div className="text-red-300 font-bold mt-1 text-sm">{cancelDeliveryModal.projName}</div></div>
+                                <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                                    <div><label className="text-xs text-red-300 font-bold block mb-2">* סיבת ביטול (חובה):</label><textarea name="reason" rows="2" placeholder="מדוע החלוקה בוטלה?" className="w-full p-3 bg-black/50 text-white rounded-xl outline-none border border-red-500/30 focus:border-red-500 font-bold text-sm" required></textarea></div>
+                                    <div className="flex-1 flex flex-col min-h-[150px]">
+                                        <div className="flex justify-between items-center mb-2"><label className="text-xs text-slate-400 font-bold">חתימה לאישור ביטול (חובה):</label><button type="button" onClick={() => sigPad.current.clear()} className="bg-black/50 text-white px-3 py-1 rounded-lg text-xs font-bold border border-white/10">נקה</button></div>
+                                        <div className="flex-1 w-full bg-white rounded-2xl border-4 border-red-500/50 overflow-hidden touch-none relative"><canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" /></div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10 shrink-0"><button type="submit" className="flex-1 bg-red-600 text-white py-4 rounded-xl font-black text-lg shadow-lg">אשר ביטול משימה</button><button type="button" onClick={() => setCancelDeliveryModal(null)} className="px-6 text-slate-400 font-bold">חזור</button></div>
+                            </form>
                         </div>
                     )}
                 </div>
