@@ -59,17 +59,15 @@
 עכשיו רד קצת למטה לקוד הריאקט (אחרי `<script type="text/babel">`). 
 **חפש את הבלוק הישן הזה (סביבות שורה 103-118):**
 
-```javascript
-        const firebaseConfig = {
-            apiKey: "AIzaSyDld2PBV8RugpAEZyTmkMrfBZNDZp4GkJw",
-            authDomain: "aquapoolco-manager.firebaseapp.com",
-            projectId: "aquapoolco-manager",
-            storageBucket: "aquapoolco-manager.firebasestorage.app",
-            messagingSenderId: "874091382276",
-            appId: "1:874091382276:web:35865613a6705c86f89751"
-        };
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore(); const storage = firebase.storage();
+```javascript// התחברות למסד הנתונים של הלקוח מתוך ההגדרות למעלה
+        if (!firebase.apps.length) firebase.initializeApp(window.ClientConfig.firebase);
+        const db = firebase.firestore(); 
+        const storage = firebase.storage();
+
+        // שאיבת המיתוג (שם, סלוגן ולוגו)
+        const APP_NAME = window.ClientConfig.branding.appName; 
+        const APP_SLOGAN = window.ClientConfig.branding.slogan; 
+        const LOGO_URL = window.ClientConfig.branding.logoUrl;
 
         const APP_NAME = "LinkBase"; const APP_SLOGAN = "הרמוניה תפעולית מוחלטת"; const LOGO_URL = "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/linkbase-icon.jpeg";
     <style>
