@@ -64,29 +64,46 @@
 if (!firebase.apps.length) firebase.initializeApp(window.ClientConfig.firebase);
 const db = firebase.firestore(); const storage = firebase.storage();
 const { appName: APP_NAME, slogan: APP_SLOGAN, logoUrl: LOGO_URL } = window.ClientConfig.branding;
-    <style>
-        :root {
-            --app-bg: #0f172a;
-            --theme-color: #3b82f6;
-            --app-card-bg: rgba(30, 41, 59, 0.85);
-            --app-radius: 1rem;
-            --theme-font: 'Rubik', sans-serif;
-        }
+<style>
+    :root {
+        --theme-color: #3b82f6; 
+        --app-bg: #0f172a;
+        --app-card-bg: rgba(30, 41, 59, 0.85);
+        --app-radius: 1rem;
+        --theme-font: 'Rubik', sans-serif;
+    }
 
-        body { 
-            background-color: var(--app-bg);
-            color: white; 
-            font-family: var(--theme-font);
-            overflow-x: hidden; 
-            -webkit-tap-highlight-color: transparent; 
-        }
+    body {
+        background-color: var(--app-bg);
+        color: white;
+        font-family: var(--theme-font);
+        margin: 0;
+        overflow-x: hidden;
+    }
 
-        .glass { 
-            background: var(--app-card-bg); 
-            backdrop-filter: blur(12px); 
-            border: 1px solid rgba(255, 255, 255, 0.05); 
-        }
+    /* עיצוב זכוכית (Glassmorphism) שמתאים לכל צבע */
+    .glass {
+        background: var(--app-card-bg);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: var(--app-radius);
+    }
 
+    /* מחלקות עזר לצבע הדינמי של הלקוח */
+    .theme-bg { background-color: var(--theme-color) !important; color: white !important; }
+    .theme-text { color: var(--theme-color) !important; }
+    .theme-border { border-color: var(--theme-color) !important; }
+    
+    /* סימן זיהוי שלך בתחתית */
+    .dev-credit {
+        text-align: center;
+        padding: 40px 20px;
+        opacity: 0.3;
+        font-size: 10px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+</style>
         .table-container { 
             overflow-x: auto; 
             border-radius: var(--app-radius); 
