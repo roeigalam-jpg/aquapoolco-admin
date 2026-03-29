@@ -194,22 +194,6 @@
     <script type="text/babel">
         MobileDragDrop.polyfill({ holdToDrag: 300 });
         const { useState, useEffect, useRef, useMemo } = React;
-// 1. אתחול Firebase מהתבנית (ClientConfig)
-        if (!firebase.apps.length) {
-            firebase.initializeApp(window.ClientConfig.firebase);
-        }
-        const db = firebase.firestore(); 
-        const storage = firebase.storage();
-
-        // 2. שאיבת מיתוג וזהות מהתבנית
-        const { appName: APP_NAME, slogan: APP_SLOGAN, logoUrl: LOGO_URL } = window.ClientConfig.branding;
-
-        // 3. הזרקת צבעי הלקוח מהתבנית לתוך ה-CSS
-        const cfg = window.ClientConfig.theme;
-        document.documentElement.style.setProperty('--theme-color', cfg.primaryColor);
-        document.documentElement.style.setProperty('--app-bg', cfg.backgroundColor);
-        document.documentElement.style.setProperty('--app-card-bg', cfg.secondaryColor);
-        document.documentElement.style.setProperty('--app-radius', cfg.borderRadius);
 
         const roleLabels = { 
             admin: "מנהל מערכת", 
