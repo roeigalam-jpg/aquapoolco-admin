@@ -849,9 +849,17 @@ const downloadProjectZip = async (projId, projName) => {
             const handleLogin = (e) => {
                 e.preventDefault();
                 
-                // כניסת מנהל מהירה מובנית
-                if (loginUsername === "roeigalam" && loginPassword === "2026") { 
-                    const adminUser = {id: "admin", name: "מנהל מערכת ראשי", username: "roeigalam", role: "admin"}; 
+       // כניסת מנהל מהירה מתוך הגדרות התבנית (ClientConfig)
+                if (loginUsername === window.ClientConfig.masterAdmin.username && 
+                    loginPassword === window.ClientConfig.masterAdmin.password) { 
+                    
+                    const adminUser = {
+                        id: "admin", 
+                        name: window.ClientConfig.masterAdmin.name, 
+                        username: window.ClientConfig.masterAdmin.username, 
+                        role: "admin"
+                    }; 
+                    
                     setCurrentUser(adminUser); 
                     localStorage.setItem("aquapoolco_user", JSON.stringify(adminUser)); 
                     return; 
