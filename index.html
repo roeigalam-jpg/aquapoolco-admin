@@ -1061,18 +1061,6 @@ if (verificationModal) {
 
             return (
                 <div className={`min-h-screen flex flex-col relative pb-10 md:pb-0 ${appFontSize}`} style={{ backgroundColor: appBgColor, fontFamily: appFont }}>
-                    <style>{`
-                        :root {
-                            --theme-color: ${appColor};
-                            --theme-font: ${appFont};
-                            --app-bg: ${appBgColor};
-                            --app-card-bg: ${appCardBg};
-                            --app-radius: ${appRadius};
-                        } 
-                        .theme-bg { background-color: var(--theme-color) !important; color: white !important; } 
-                        .theme-text { color: var(--theme-color) !important; } 
-                        .theme-border { border-color: var(--theme-color) !important; }
-                    `}</style>
 
                     {/* ================= HEADER AND NAVIGATION ================= */}
                     <header className="glass px-2 md:px-4 py-3 flex flex-col lg:flex-row justify-between items-center sticky top-0 z-30 border-b border-white/5 gap-3 shadow-md w-full" style={{ borderRadius: '0 0 var(--app-radius) var(--app-radius)' }}>
