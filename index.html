@@ -328,8 +328,11 @@
                     setAttendanceLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                 });
 
-                db.collection("project_photos").orderBy("timestamp", "desc").onSnapshot(snap => {
-    setAllPhotos(snap.docs.map(d => ({id: d.id, ...d.data()})));
+              db.collection("project_photos").orderBy("timestamp", "desc").onSnapshot(snap => {
+    setAllPhotos(snap.docs.map(d => {
+        const data = d.data();
+        return { id: d.id, ...data, url: data.fileUrl || data.url };
+    }));
 });
             }, []);
 
