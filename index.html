@@ -28,7 +28,50 @@
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mobile-drag-drop@3.0.0-beta.0/index.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mobile-drag-drop@3.0.0-beta.0/default.css">
-    
+    <script>
+        window.ClientConfig = {
+            branding: {
+                appName: "LinkBase", 
+                slogan: "הרמוניה תפעולית מוחלטת",
+                logoUrl: "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/linkbase-icon.jpeg"
+            },
+            firebase: {
+                apiKey: "AIzaSyDld2PBV8RugpAEZyTmkMrfBZNDZp4GkJw",
+                authDomain: "aquapoolco-manager.firebaseapp.com",
+                projectId: "aquapoolco-manager",
+                storageBucket: "aquapoolco-manager.firebasestorage.app",
+                messagingSenderId: "874091382276",
+                appId: "1:874091382276:web:35865613a6705c86f89751"
+            },
+            masterAdmin: {
+                username: "admin",      // שם משתמש קבוע למנהל המערכת של הלקוח
+                password: "setup2026",  // סיסמה ראשונית (הלקוח יוכל לשנות אח"כ)
+                name: "מנהל מערכת ראשי"
+            }
+        };
+    </script>
+    ```
+*(השארתי כאן את הנתונים הנוכחיים שלך, כדי שהמערכת שלך תמשיך לעבוד כרגיל, אבל מכאן הכל נשאב אוטומטית).*
+
+---
+
+### צעד 2: ניתוק הקוד מהגדרות קשיחות
+עכשיו רד קצת למטה לקוד הריאקט (אחרי `<script type="text/babel">`). 
+**חפש את הבלוק הישן הזה (סביבות שורה 103-118):**
+
+```javascript
+        const firebaseConfig = {
+            apiKey: "AIzaSyDld2PBV8RugpAEZyTmkMrfBZNDZp4GkJw",
+            authDomain: "aquapoolco-manager.firebaseapp.com",
+            projectId: "aquapoolco-manager",
+            storageBucket: "aquapoolco-manager.firebasestorage.app",
+            messagingSenderId: "874091382276",
+            appId: "1:874091382276:web:35865613a6705c86f89751"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore(); const storage = firebase.storage();
+
+        const APP_NAME = "LinkBase"; const APP_SLOGAN = "הרמוניה תפעולית מוחלטת"; const LOGO_URL = "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/linkbase-icon.jpeg";
     <style>
         :root {
             --app-bg: #0f172a;
