@@ -50,34 +50,7 @@
             }
         };
     </script>
-    ```
 
-
----
-
-```javascript
-      // שאיבת נתוני החיבור והמיתוג מתוך לוח הבקרה של הלקוח
-if (!firebase.apps.length) firebase.initializeApp(window.ClientConfig.firebase);
-const db = firebase.firestore(); const storage = firebase.storage();
-const { appName: APP_NAME, slogan: APP_SLOGAN, logoUrl: LOGO_URL } = window.ClientConfig.branding;
-<style>
-    :root {
-        --theme-color: #3b82f6; 
-        --app-bg: #0f172a;
-        --app-card-bg: rgba(30, 41, 59, 0.85);
-        --app-radius: 1rem;
-        --theme-font: 'Rubik', sans-serif;
-    }
-
-    body {
-        background-color: var(--app-bg);
-        color: white;
-        font-family: var(--theme-font);
-        margin: 0;
-        overflow-x: hidden;
-    }
-
-    /* עיצוב זכוכית (Glassmorphism) שמתאים לכל צבע */
     .glass {
         background: var(--app-card-bg);
         backdrop-filter: blur(12px);
