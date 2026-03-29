@@ -329,8 +329,8 @@
                 });
 
                 db.collection("project_photos").orderBy("timestamp", "desc").onSnapshot(snap => {
-                    setAllPhotos(snap.docs.map(d => ({id: d.id, ...d.data()})));
-                });
+    setAllPhotos(snap.docs.map(d => ({id: d.id, ...d.data()})));
+});
             }, []);
 
             useEffect(() => {
