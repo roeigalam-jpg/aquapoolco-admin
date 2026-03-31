@@ -28,51 +28,30 @@
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mobile-drag-drop@3.0.0-beta.0/index.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mobile-drag-drop@3.0.0-beta.0/default.css">
-    <script>
-        window.ClientConfig = {
-            branding: {
-                appName: "LinkBase", 
-                slogan: "הרמוניה תפעולית מוחלטת",
-                logoUrl: "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/linkbase-icon.jpeg"
-            },
-            firebase: {
-                apiKey: "AIzaSyDld2PBV8RugpAEZyTmkMrfBZNDZp4GkJw",
-                authDomain: "aquapoolco-manager.firebaseapp.com",
-                projectId: "aquapoolco-manager",
-                storageBucket: "aquapoolco-manager.firebasestorage.app",
-                messagingSenderId: "874091382276",
-                appId: "1:874091382276:web:35865613a6705c86f89751"
-            },
-            masterAdmin: {
-                username: "admin",      // שם משתמש קבוע למנהל המערכת של הלקוח
-                password: "setup2026",  // סיסמה ראשונית (הלקוח יוכל לשנות אח"כ)
-                name: "מנהל מערכת ראשי"
-            }
-        };
-    </script>
-
-    .glass {
-        background: var(--app-card-bg);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: var(--app-radius);
-    }
-
-    /* מחלקות עזר לצבע הדינמי של הלקוח */
-    .theme-bg { background-color: var(--theme-color) !important; color: white !important; }
-    .theme-text { color: var(--theme-color) !important; }
-    .theme-border { border-color: var(--theme-color) !important; }
     
-    /* סימן זיהוי שלך בתחתית */
-    .dev-credit {
-        text-align: center;
-        padding: 40px 20px;
-        opacity: 0.3;
-        font-size: 10px;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-    }
-</style>
+    <style>
+        :root {
+            --app-bg: #0f172a;
+            --theme-color: #3b82f6;
+            --app-card-bg: rgba(30, 41, 59, 0.85);
+            --app-radius: 1rem;
+            --theme-font: 'Rubik', sans-serif;
+        }
+
+        body { 
+            background-color: var(--app-bg);
+            color: white; 
+            font-family: var(--theme-font);
+            overflow-x: hidden; 
+            -webkit-tap-highlight-color: transparent; 
+        }
+
+        .glass { 
+            background: var(--app-card-bg); 
+            backdrop-filter: blur(12px); 
+            border: 1px solid rgba(255, 255, 255, 0.05); 
+        }
+
         .table-container { 
             overflow-x: auto; 
             border-radius: var(--app-radius); 
@@ -195,6 +174,26 @@
         MobileDragDrop.polyfill({ holdToDrag: 300 });
         const { useState, useEffect, useRef, useMemo } = React;
 
+        const firebaseConfig = {
+            apiKey: "AIzaSyDld2PBV8RugpAEZyTmkMrfBZNDZp4GkJw",
+            authDomain: "aquapoolco-manager.firebaseapp.com",
+            projectId: "aquapoolco-manager",
+            storageBucket: "aquapoolco-manager.firebasestorage.app",
+            messagingSenderId: "874091382276",
+            appId: "1:874091382276:web:35865613a6705c86f89751"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        
+        const db = firebase.firestore(); 
+        const storage = firebase.storage();
+
+        const APP_NAME = "LinkBase"; 
+        const APP_SLOGAN = "הרמוניה תפעולית מוחלטת"; 
+        const LOGO_URL = "https://raw.githubusercontent.com/roeigalam-jpg/aquapoolco-admin/main/src/linkbase-icon.jpeg";
+        
         const roleLabels = { 
             admin: "מנהל מערכת", 
             accounting: "הנהלת חשבונות", 
@@ -504,7 +503,18 @@ const downloadProjectZip = async (projId, projName) => {
                     <html dir="rtl" lang="he">
                     <head>
                         <title>תיק מתקן - ${proj.name}</title>
-
+                        <style>
+                            body { font-family: Arial, sans-serif; padding: 40px; color: #0f172a; direction: rtl; text-align: right; } 
+                            .h { text-align: center; border-bottom: 3px solid #2563eb; padding-bottom: 20px; margin-bottom: 30px; } 
+                            h1 { font-size: 36px; margin: 0; font-weight: 900; } 
+                            h2 { color: #2563eb; font-size: 22px; margin: 5px 0 0 0; } 
+                            table { width: 100%; border-collapse: collapse; margin-bottom: 40px; font-size: 16px; } 
+                            th, td { padding: 12px; border: 1px solid #cbd5e1; text-align: right; } 
+                            th { background: #f8fafc; } 
+                            .s3 { color: #16a34a; font-weight: bold; } 
+                            .s2 { color: #dc2626; font-weight: bold; } 
+                            @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+                        </style>
                     </head>
                     <body>
                         <div class="h">
@@ -815,17 +825,9 @@ const downloadProjectZip = async (projId, projName) => {
             const handleLogin = (e) => {
                 e.preventDefault();
                 
-       // כניסת מנהל מהירה מתוך הגדרות התבנית (ClientConfig)
-                if (loginUsername === window.ClientConfig.masterAdmin.username && 
-                    loginPassword === window.ClientConfig.masterAdmin.password) { 
-                    
-                    const adminUser = {
-                        id: "admin", 
-                        name: window.ClientConfig.masterAdmin.name, 
-                        username: window.ClientConfig.masterAdmin.username, 
-                        role: "admin"
-                    }; 
-                    
+                // כניסת מנהל מהירה מובנית
+                if (loginUsername === "roeigalam" && loginPassword === "2026") { 
+                    const adminUser = {id: "admin", name: "מנהל מערכת ראשי", username: "roeigalam", role: "admin"}; 
                     setCurrentUser(adminUser); 
                     localStorage.setItem("aquapoolco_user", JSON.stringify(adminUser)); 
                     return; 
@@ -1021,6 +1023,18 @@ if (verificationModal) {
 
             return (
                 <div className={`min-h-screen flex flex-col relative pb-10 md:pb-0 ${appFontSize}`} style={{ backgroundColor: appBgColor, fontFamily: appFont }}>
+                    <style>{`
+                        :root {
+                            --theme-color: ${appColor};
+                            --theme-font: ${appFont};
+                            --app-bg: ${appBgColor};
+                            --app-card-bg: ${appCardBg};
+                            --app-radius: ${appRadius};
+                        } 
+                        .theme-bg { background-color: var(--theme-color) !important; color: white !important; } 
+                        .theme-text { color: var(--theme-color) !important; } 
+                        .theme-border { border-color: var(--theme-color) !important; }
+                    `}</style>
 
                     {/* ================= HEADER AND NAVIGATION ================= */}
                     <header className="glass px-2 md:px-4 py-3 flex flex-col lg:flex-row justify-between items-center sticky top-0 z-30 border-b border-white/5 gap-3 shadow-md w-full" style={{ borderRadius: '0 0 var(--app-radius) var(--app-radius)' }}>
